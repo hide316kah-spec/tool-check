@@ -4,35 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ツールチェック</title>
-
 <style>
-body{
-  margin:0;background:#111;color:#fff;
-  font-family:-apple-system,BlinkMacSystemFont;
-}
-header{
-  padding:8px 12px;border-bottom:1px solid #333;
-  font-size:14px;color:#aaa;
-}
-main{padding:16px;max-width:520px;margin:auto;}
-.card{border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:12px;}
-button{
-  width:100%;padding:16px;margin-top:12px;
-  font-size:18px;border-radius:8px;
-  background:#1a1a1a;color:#fff;border:1px solid #333;
-}
+body{margin:0;background:#111;color:#fff;font-family:-apple-system}
+header{padding:8px 12px;border-bottom:1px solid #333;color:#aaa;font-size:14px}
+main{padding:16px;max-width:520px;margin:auto}
+.card{border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:12px}
+button{width:100%;padding:16px;margin-top:12px;font-size:18px;
+  background:#1a1a1a;color:#fff;border:1px solid #333;border-radius:8px}
 .small{font-size:14px;padding:10px}
-.toast{
-  position:fixed;top:40%;left:50%;
-  transform:translate(-50%,-50%);
-  background:#000;border:1px solid #333;
-  padding:20px 28px;border-radius:8px;
-  text-align:center;z-index:9999;
-}
-video{width:100%;border-radius:8px;border:1px solid #333;background:#000}
+.toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);
+  background:#000;border:1px solid #333;padding:20px 28px;border-radius:8px}
 .hidden{display:none}
-.row{display:flex;gap:10px}
-.pill{border:1px solid #333;border-radius:999px;padding:2px 8px;color:#aaa;font-size:14px}
+video{width:100%;border:1px solid #333;border-radius:8px}
 </style>
 </head>
 
@@ -41,20 +24,22 @@ video{width:100%;border-radius:8px;border:1px solid #333;background:#000}
 <main id="app"></main>
 
 <script>
-/* ===== 設定 ===== */
+/* 設定 */
 const TOOL_NAME={
   T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
   T004:"誘導棒",D001:"その他（扉1）",D002:"その他（扉2）",D003:"その他（扉3）"
 };
 const MEMBERS=["佐藤","山田","高橋"];
 
-/* ===== URL ===== */
+/* URL */
 const p=new URLSearchParams(location.search);
 const site=p.get("site")||"千葉機械ライン";
 const tool=p.get("tool");
+const role=p.get("role"); // ← 追加
+const isChecker=(role==="checker");
 const toolName=TOOL_NAME[tool]||"不明";
 
-/* ===== 共通 ===== */
+/* 共通 */
 const app=document.getElementById("app");
 const hdr=document.getElementById("hdr");
 const now=()=>new Date();
@@ -69,11 +54,11 @@ function toast(a,b="",ms=2500){
   setTimeout(()=>d.remove(),ms);
 }
 
-/* ===== 端末名 ===== */
+/* 端末名 */
 function getUser(){return localStorage.getItem("user")||"";}
 function setUser(n){localStorage.setItem("user",n);}
 
-/* ===== ログ ===== */
+/* ログ（端末内デモ） */
 function logs(){return JSON.parse(localStorage.getItem("logs")||"[]");}
 function save(l){localStorage.setItem("logs",JSON.stringify(l));}
 function add(e){const l=logs();l.push(e);save(l);}
@@ -81,16 +66,17 @@ function last(){
   return logs().filter(x=>x.site==site&&x.tool==tool).slice(-1)[0];
 }
 
-/* ===== 画面 ===== */
+/* 画面 */
 function header(){
-  hdr.textContent=`現場：${site}　道具：${toolName}　端末：${getUser()||"未設定"}`;
+  hdr.textContent=
+    `現場：${site}　道具：${toolName}　端末：${getUser()||"未設定"}`
+    + (isChecker?"　[確認者]":"");
 }
 
 function userSelect(){
   app.innerHTML=`
-  <div class="card">
-    <h3>この端末の名前</h3>
-    ${MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")}
+  <div class="card"><h3>この端末の名前</h3>
+  ${MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")}
   </div>`;
 }
 window.pick=n=>{setUser(n);render();};
@@ -106,31 +92,28 @@ function main(){
   app.innerHTML=`
   <div class="card">
     <h3>${toolName}</h3>
-    <div class="pill">${st}</div>
+    <div>${st}</div>
 
     <button onclick="take()">持ち出し</button>
     <button onclick="ret()">返却（写真）</button>
 
-    ${state=="RETURN"?`
-      <button class="small" onclick="approve()">承認（確認者）</button>`:""}
+    ${state=="RETURN" && isChecker
+      ? `<button class="small" onclick="approve()">承認（確認者）</button>`
+      : ``}
   </div>
 
   <div id="cam" class="card hidden">
     <video id="v" autoplay playsinline></video>
-    <div class="row">
-      <button onclick="shot()">撮影</button>
-      <button class="small" onclick="stop()">中止</button>
-    </div>
+    <button onclick="shot()">撮影</button>
   </div>`;
 }
 
-/* ===== 動作 ===== */
+/* 動作 */
 window.take=()=>{
   const d=now();
-  add({site,tool,toolName,type:"TAKE",user:getUser(),t:d.toISOString(),hm:hm(d)});
+  add({site,tool,toolName,type:"TAKE",user:getUser(),hm:hm(d)});
   toast("持ち出しました",hm(d));
 };
-
 let stream=null;
 window.ret=async()=>{
   const cam=document.getElementById("cam");
@@ -139,24 +122,21 @@ window.ret=async()=>{
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
   v.srcObject=stream;
 };
-window.stop=()=>{if(stream)stream.getTracks().forEach(t=>t.stop());
-  document.getElementById("cam").classList.add("hidden");};
-
 window.shot=()=>{
-  stop();
+  stream.getTracks().forEach(t=>t.stop());
   const d=now();
-  add({site,tool,toolName,type:"RETURN",user:getUser(),t:d.toISOString(),hm:hm(d)});
+  add({site,tool,toolName,type:"RETURN",user:getUser(),hm:hm(d)});
   toast("返却を記録","承認待ち");
+  render();
 };
-
 window.approve=()=>{
   const d=now();
-  add({site,tool,toolName,type:"APPROVE",user:getUser(),t:d.toISOString(),hm:hm(d)});
+  add({site,tool,toolName,type:"APPROVE",user:getUser(),hm:hm(d)});
   toast("承認しました",hm(d));
   render();
 };
 
-/* ===== 起動 ===== */
+/* 起動 */
 function render(){
   header();
   if(!tool)return app.innerHTML="<div class='card'>tool指定なし</div>";
