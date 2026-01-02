@@ -4,37 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ツールチェック</title>
-
 <style>
 body{margin:0;background:#111;color:#fff;font-family:-apple-system}
 header{padding:8px 12px;border-bottom:1px solid #333;color:#aaa;font-size:14px}
 main{padding:16px;max-width:520px;margin:auto}
-.card{border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:12px}
-button{
-  width:100%;padding:16px;margin-top:12px;
-  font-size:18px;border-radius:8px;
-  background:#1a1a1a;color:#fff;border:1px solid #333
-}
+.card{border:1px solid #333;border-radius:10px;padding:16px;margin-bottom:12px}
+button{width:100%;padding:16px;margin-top:12px;font-size:18px;border-radius:10px;background:#1a1a1a;color:#fff;border:1px solid #333}
 .small{font-size:14px;padding:10px}
-.toast{
-  position:fixed;top:40%;left:50%;
-  transform:translate(-50%,-50%);
-  background:#000;border:1px solid #333;
-  padding:20px 28px;border-radius:8px;text-align:center;z-index:9999
-}
+.badge{display:inline-block;padding:4px 8px;border:1px solid #333;border-radius:999px;font-size:12px;margin-left:6px;color:#bbb}
+.list{margin-top:10px}
+.item{padding:10px;border:1px solid #333;border-radius:10px;margin-top:8px}
+.item b{display:block;font-size:16px}
+.item .meta{opacity:.7;font-size:13px;margin-top:4px}
+.toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000;border:1px solid #333;padding:18px 24px;border-radius:10px;text-align:center;z-index:9999}
+video{width:100%;border-radius:10px;border:1px solid #333;background:#000}
 .hidden{display:none}
-video{width:100%;border-radius:8px;border:1px solid #333;background:#000}
 </style>
 </head>
-
 <body>
 <header id="hdr"></header>
 <main id="app"></main>
 
 <script>
 /* ===== 設定 ===== */
-const GAS_URL =
-"https://script.google.com/macros/s/AKfycbzQH_wIyl0sfM_FHx1_qiWq5Q4dGzMkYJ4mNEp9vpqzq0dpxPWSSs8Dgc2HBx1jhp0B/exec";
+const GAS_URL="https://script.google.com/macros/s/AKfycbzQH_wIyl0sfM_FHx1_qiWq5Q4dGzMkYJ4mNEp9vpqzq0dpxPWSSs8Dgc2HBx1jhp0B/exec";
 
 const TOOL_NAME={
   T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
@@ -42,9 +35,9 @@ const TOOL_NAME={
 };
 const MEMBERS=["佐藤","山田","高橋"];
 
-/* ===== URL ===== */
+/* ===== URL（siteを絶対優先） ===== */
 const p=new URLSearchParams(location.search);
-const site=p.get("site")||"千葉機械ライン";
+const site=(p.get("site")||"").trim() || "A";
 const tool=p.get("tool");
 const role=p.get("role");
 const isChecker=(role==="checker");
@@ -53,11 +46,13 @@ const toolName=TOOL_NAME[tool]||"不明";
 /* ===== 共通 ===== */
 const app=document.getElementById("app");
 const hdr=document.getElementById("hdr");
+const pad=n=>("0"+n).slice(-2);
+const hm=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-function toast(a,b="",ms=2500){
+function toast(a,b="",ms=2200){
   const d=document.createElement("div");
   d.className="toast";
-  d.innerHTML=`<div>${a}</div><div style="opacity:.7;font-size:14px">${b}</div>`;
+  d.innerHTML=`<div style="font-size:20px">${a}</div><div style="opacity:.7;font-size:14px;margin-top:6px">${b}</div>`;
   document.body.appendChild(d);
   setTimeout(()=>d.remove(),ms);
 }
@@ -65,73 +60,184 @@ function toast(a,b="",ms=2500){
 function getUser(){return localStorage.getItem("user")||"";}
 function setUser(n){localStorage.setItem("user",n);}
 
-/* ===== GAS送信（CORS回避） ===== */
-function sendToSheet(type){
+async function post(action){
   const payload={
     datetime:new Date().toISOString(),
-    site,tool,toolName,
-    action:type,
+    site, tool, toolName,
+    action,
     user:getUser()
   };
-
-  fetch(GAS_URL,{
+  await fetch(GAS_URL,{
     method:"POST",
-    mode:"no-cors",          // ★ これが肝
-    headers:{
-      "Content-Type":"text/plain;charset=utf-8"
-    },
+    headers:{"Content-Type":"application/json"},
     body:JSON.stringify(payload)
   });
-
-  // no-corsなのでレスポンスは見ない（問題なし）
 }
 
-/* ===== 表示 ===== */
+async function fetchStatus(){
+  const url = `${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`;
+  const r = await fetch(url, {method:"GET"});
+  return await r.json();
+}
+
+/* ===== UI ===== */
 function header(){
-  hdr.textContent=
-    `現場：${site}　道具：${toolName}　端末：${getUser()||"未設定"}`
-    +(isChecker?"　[確認者]":"");
+  hdr.textContent = `現場：${site}　道具：${toolName}　端末：${getUser()||"未設定"}` + (isChecker?"　[確認者]":"");
 }
 
-function userSelect(){
+function selectUser(){
   app.innerHTML=`
   <div class="card">
-    <h3>この端末の名前</h3>
+    <h3>この端末の名前 <span class="badge">最初の1回だけ</span></h3>
     ${MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")}
   </div>`;
 }
 window.pick=n=>{setUser(n);render();};
 
-function main(){
+let stream=null;
+let lastToastKey="";
+
+function workerUI(){
   app.innerHTML=`
   <div class="card">
     <h3>${toolName}</h3>
     <button onclick="take()">持ち出し</button>
-    <button onclick="ret()">返却</button>
-    ${isChecker?`<button class="small" onclick="approve()">承認（確認者）</button>`:""}
+    <button onclick="startCamera()">返却（写真）</button>
+    <div id="cam" class="card hidden" style="margin-top:12px">
+      <video id="v" autoplay playsinline></video>
+      <button onclick="shot()">撮影</button>
+    </div>
+  </div>`;
+}
+
+function checkerUI(){
+  app.innerHTML=`
+  <div class="card">
+    <h3>確認者パネル <span class="badge">自動更新</span></h3>
+    <div id="list" class="list"></div>
+    <button class="small" onclick="approve()">承認（確認者）</button>
   </div>`;
 }
 
 /* ===== 動作 ===== */
-function take(){
-  sendToSheet("TAKE");
-  toast("持ち出しました");
+window.take=async()=>{
+  try{
+    await post("TAKE");
+    toast("持ち出しを記録",`${toolName} / ${hm(new Date())}`);
+  }catch(e){
+    toast("通信エラー","記録できてない");
+  }
+};
+
+window.startCamera=async()=>{
+  // iOS対策：ユーザー操作直後に必ず開始
+  try{
+    const cam=document.getElementById("cam");
+    cam.classList.remove("hidden");
+    const v=document.getElementById("v");
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    v.srcObject=stream;
+  }catch(e){
+    toast("カメラ起動できない","許可/HTTPS/設定を確認");
+  }
+};
+
+window.shot=async()=>{
+  try{
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+    await post("RETURN");
+    toast("返却を記録","承認待ち");
+  }catch(e){
+    toast("通信エラー","記録できてない");
+  }
+};
+
+window.approve=async()=>{
+  // 承認は「状態がPENDINGのものがある前提」で押す運用
+  try{
+    await post("APPROVE");
+    toast("承認を記録",hm(new Date()));
+    await refreshList(true);
+  }catch(e){
+    toast("通信エラー","承認できてない");
+  }
+};
+
+/* ===== 確認者：持ち出し中/承認待ち表示 ===== */
+function renderList(items){
+  const box=document.getElementById("list");
+  if(!box) return;
+
+  // OUT/PENDINGだけ見せる（INは省略）
+  const active = items.filter(x=>x.status==="OUT"||x.status==="PENDING");
+
+  if(active.length===0){
+    box.innerHTML=`<div class="item"><b>いま持ち出し中なし</b><div class="meta">現場：${site}</div></div>`;
+    return;
+  }
+
+  box.innerHTML = active.map(x=>{
+    const label = (x.status==="OUT") ? "持ち出し中" : "返却→承認待ち";
+    return `
+      <div class="item">
+        <b>${x.toolName}（${x.tool}）</b>
+        <div class="meta">${label} / ${x.by} / ${new Date(x.at).toLocaleString()}</div>
+      </div>`;
+  }).join("");
 }
-function ret(){
-  sendToSheet("RETURN");
-  toast("返却を記録","承認待ち");
-}
-function approve(){
-  sendToSheet("APPROVE");
-  toast("承認しました");
+
+async function refreshList(showToast){
+  try{
+    const js=await fetchStatus();
+    if(js.result!=="ok") return;
+
+    renderList(js.items||[]);
+
+    // “確認者へのポップアップ”代替：
+    // 確認者画面が開いてる時だけ、状態変化をトーストで出す（他人の睡眠は邪魔しない）
+    if(showToast){
+      // 直近のPENDINGを見つける
+      const pending=(js.items||[]).filter(x=>x.status==="PENDING").sort((a,b)=>new Date(b.at)-new Date(a.at))[0];
+      if(pending){
+        const key=`PENDING-${pending.tool}-${pending.at}`;
+        if(key!==lastToastKey){
+          lastToastKey=key;
+          toast("返却→承認待ち",`${pending.toolName} / ${pending.by}`);
+        }
+      }
+      const out=(js.items||[]).filter(x=>x.status==="OUT").sort((a,b)=>new Date(b.at)-new Date(a.at))[0];
+      if(out){
+        const key=`OUT-${out.tool}-${out.at}`;
+        if(key!==lastToastKey){
+          lastToastKey=key;
+          toast("持ち出し",`${out.toolName} / ${out.by}`);
+        }
+      }
+    }
+  }catch(e){
+    // 無表示でOK（邪魔しない）
+  }
 }
 
 /* ===== 起動 ===== */
 function render(){
   header();
-  if(!tool)return app.innerHTML="<div class='card'>tool指定なし</div>";
-  if(!getUser())return userSelect();
-  main();
+  if(!tool){
+    app.innerHTML="<div class='card'>tool指定なし</div>";
+    return;
+  }
+  if(!getUser()){
+    selectUser();
+    return;
+  }
+  if(isChecker){
+    checkerUI();
+    refreshList(true);
+    // 15秒ごとに更新（邪魔しない）
+    setInterval(()=>refreshList(true),15000);
+  }else{
+    workerUI();
+  }
 }
 render();
 </script>
