@@ -1,330 +1,169 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ツールチェック</title>
-  <style>
-    :root { --bg:#111; --fg:#fff; --bd:#333; --muted:#aaa; }
-    body{
-      margin:0; background:var(--bg); color:var(--fg);
-      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial;
-      min-height:100vh;
-    }
-    header{
-      padding:10px 12px; border-bottom:1px solid var(--bd);
-      font-size:14px; color:var(--muted);
-      display:flex; gap:12px; flex-wrap:wrap;
-    }
-    main{ padding:16px; max-width:520px; margin:0 auto; }
-    h1{ font-size:20px; margin:8px 0 12px; }
-    .card{ border:1px solid var(--bd); border-radius:10px; padding:14px; }
-    .row{ display:flex; gap:10px; }
-    button{
-      width:100%; padding:16px; font-size:18px; border-radius:10px;
-      border:1px solid var(--bd); background:#1a1a1a; color:var(--fg);
-    }
-    button:active{ transform:scale(0.99); }
-    .smallbtn{ padding:10px; font-size:14px; }
-    .muted{ color:var(--muted); font-size:14px; }
-    .toast{
-      position:fixed; left:50%; top:40%;
-      transform:translate(-50%,-50%);
-      background:#000; border:1px solid var(--bd);
-      padding:18px 22px; border-radius:10px;
-      text-align:center; min-width:240px;
-      z-index:9999;
-    }
-    .toast .t1{ font-size:18px; }
-    .toast .t2{ margin-top:8px; font-size:14px; color:var(--muted); }
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ツールチェック</title>
 
-    /* camera */
-    video{ width:100%; border-radius:10px; border:1px solid var(--bd); background:#000; }
-    .camBtns{ margin-top:10px; display:flex; gap:10px; }
-    .hidden{ display:none; }
-    .list-item{
-      display:flex; justify-content:space-between; gap:10px;
-      padding:8px 0; border-bottom:1px solid var(--bd);
-      font-size:14px;
-    }
-    .pill{ padding:2px 8px; border:1px solid var(--bd); border-radius:999px; color:var(--muted); }
-  </style>
+<style>
+body{
+  margin:0;background:#111;color:#fff;
+  font-family:-apple-system,BlinkMacSystemFont;
+}
+header{
+  padding:8px 12px;border-bottom:1px solid #333;
+  font-size:14px;color:#aaa;
+}
+main{padding:16px;max-width:520px;margin:auto;}
+.card{border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:12px;}
+button{
+  width:100%;padding:16px;margin-top:12px;
+  font-size:18px;border-radius:8px;
+  background:#1a1a1a;color:#fff;border:1px solid #333;
+}
+.small{font-size:14px;padding:10px}
+.toast{
+  position:fixed;top:40%;left:50%;
+  transform:translate(-50%,-50%);
+  background:#000;border:1px solid #333;
+  padding:20px 28px;border-radius:8px;
+  text-align:center;z-index:9999;
+}
+video{width:100%;border-radius:8px;border:1px solid #333;background:#000}
+.hidden{display:none}
+.row{display:flex;gap:10px}
+.pill{border:1px solid #333;border-radius:999px;padding:2px 8px;color:#aaa;font-size:14px}
+</style>
 </head>
+
 <body>
-  <header id="hdr"></header>
-  <main id="app"></main>
+<header id="hdr"></header>
+<main id="app"></main>
 
 <script>
-/* ==========================
-   設定：道具ID → 表示名
-   ========================== */
-const TOOL_NAME = {
-  T001: "手歯止め",
-  T002: "デジタルゲージ",
-  T003: "検測用具",
-  T004: "誘導棒",
-  D001: "その他（扉1）",
-  D002: "その他（扉2）",
-  D003: "その他（扉3）",
+/* ===== 設定 ===== */
+const TOOL_NAME={
+  T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
+  T004:"誘導棒",D001:"その他（扉1）",D002:"その他（扉2）",D003:"その他（扉3）"
+};
+const MEMBERS=["佐藤","山田","高橋"];
+
+/* ===== URL ===== */
+const p=new URLSearchParams(location.search);
+const site=p.get("site")||"千葉機械ライン";
+const tool=p.get("tool");
+const toolName=TOOL_NAME[tool]||"不明";
+
+/* ===== 共通 ===== */
+const app=document.getElementById("app");
+const hdr=document.getElementById("hdr");
+const now=()=>new Date();
+const pad=n=>("0"+n).slice(-2);
+const hm=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+function toast(a,b="",ms=2500){
+  const d=document.createElement("div");
+  d.className="toast";
+  d.innerHTML=`<div>${a}</div><div style="opacity:.7;font-size:14px">${b}</div>`;
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),ms);
+}
+
+/* ===== 端末名 ===== */
+function getUser(){return localStorage.getItem("user")||"";}
+function setUser(n){localStorage.setItem("user",n);}
+
+/* ===== ログ ===== */
+function logs(){return JSON.parse(localStorage.getItem("logs")||"[]");}
+function save(l){localStorage.setItem("logs",JSON.stringify(l));}
+function add(e){const l=logs();l.push(e);save(l);}
+function last(){
+  return logs().filter(x=>x.site==site&&x.tool==tool).slice(-1)[0];
+}
+
+/* ===== 画面 ===== */
+function header(){
+  hdr.textContent=`現場：${site}　道具：${toolName}　端末：${getUser()||"未設定"}`;
+}
+
+function userSelect(){
+  app.innerHTML=`
+  <div class="card">
+    <h3>この端末の名前</h3>
+    ${MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")}
+  </div>`;
+}
+window.pick=n=>{setUser(n);render();};
+
+function main(){
+  const l=last();
+  const state=l?l.type:"NONE";
+  let st="未使用";
+  if(state=="TAKE")st="使用中";
+  if(state=="RETURN")st="承認待ち";
+  if(state=="APPROVE")st="返却済";
+
+  app.innerHTML=`
+  <div class="card">
+    <h3>${toolName}</h3>
+    <div class="pill">${st}</div>
+
+    <button onclick="take()">持ち出し</button>
+    <button onclick="ret()">返却（写真）</button>
+
+    ${state=="RETURN"?`
+      <button class="small" onclick="approve()">承認（確認者）</button>`:""}
+  </div>
+
+  <div id="cam" class="card hidden">
+    <video id="v" autoplay playsinline></video>
+    <div class="row">
+      <button onclick="shot()">撮影</button>
+      <button class="small" onclick="stop()">中止</button>
+    </div>
+  </div>`;
+}
+
+/* ===== 動作 ===== */
+window.take=()=>{
+  const d=now();
+  add({site,tool,toolName,type:"TAKE",user:getUser(),t:d.toISOString(),hm:hm(d)});
+  toast("持ち出しました",hm(d));
 };
 
-/* ==========================
-   便利関数
-   ========================== */
-const $app = document.getElementById("app");
-const $hdr = document.getElementById("hdr");
-const pad2 = n => ("0"+n).slice(-2);
-const fmtHM = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-const nowISO = () => new Date().toISOString();
+let stream=null;
+window.ret=async()=>{
+  const cam=document.getElementById("cam");
+  cam.classList.remove("hidden");
+  const v=document.getElementById("v");
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+  v.srcObject=stream;
+};
+window.stop=()=>{if(stream)stream.getTracks().forEach(t=>t.stop());
+  document.getElementById("cam").classList.add("hidden");};
 
-function toast(line1, line2="", ms=2500){
-  const d = document.createElement("div");
-  d.className = "toast";
-  d.innerHTML = `<div class="t1">${escapeHtml(line1)}</div><div class="t2">${escapeHtml(line2)}</div>`;
-  document.body.appendChild(d);
-  setTimeout(()=>d.remove(), ms);
-}
+window.shot=()=>{
+  stop();
+  const d=now();
+  add({site,tool,toolName,type:"RETURN",user:getUser(),t:d.toISOString(),hm:hm(d)});
+  toast("返却を記録","承認待ち");
+};
 
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-
-function loadJSON(key, fallback){
-  try { return JSON.parse(localStorage.getItem(key) || ""); } catch(e){ return fallback; }
-}
-function saveJSON(key, value){
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-/* ==========================
-   URLパラメータ
-   ========================== */
-const params = new URLSearchParams(location.search);
-const site = params.get("site") || "A";           // 現場ID（今は仮）
-const toolId = (params.get("tool") || "").trim();  // 道具ID
-const toolName = TOOL_NAME[toolId] || (toolId ? `tool=${toolId}` : "未指定");
-
-/* ==========================
-   端末名（=人）簡易
-   ========================== */
-const MEMBERS = ["山田","佐藤","高橋"];
-function getUser(){ return localStorage.getItem("user_name") || ""; }
-function setUser(name){ localStorage.setItem("user_name", name); }
-
-/* ==========================
-   ログ（端末内デモ）
-   ========================== */
-function getLogs(){
-  return loadJSON("tool_logs", []);
-}
-function addLog(entry){
-  const logs = getLogs();
-  logs.push(entry);
-  saveJSON("tool_logs", logs);
-}
-function getToolState(tool){
-  // 最新イベントで状態を判定（デモ）
-  const logs = getLogs().filter(x => x.site===site && x.tool===tool);
-  const last = logs[logs.length-1];
-  if (!last) return {status:"未使用", last:null};
-  if (last.type==="TAKE") return {status:"使用中", last};
-  if (last.type==="RETURN") return {status:"返却済(確認待ち)", last};
-  if (last.type==="APPROVE") return {status:"返却済", last};
-  return {status:"不明", last};
-}
-
-/* ==========================
-   画面
-   ========================== */
-function renderHeader(){
-  const user = getUser();
-  $hdr.textContent = `現場：${site}　道具：${toolName}${user ? `　端末：${user}` : ""}`;
-}
-
-function renderNeedParams(){
-  $app.innerHTML = `
-    <div class="card">
-      <h1>ツールチェック</h1>
-      <div class="muted">URLに tool= がありません。</div>
-      <div class="muted" style="margin-top:10px">
-        例：<br>
-        https://hide316kah-spec.github.io/tool-check/?site=A&tool=T001
-      </div>
-    </div>
-  `;
-}
-
-function renderUserSelect(){
-  $app.innerHTML = `
-    <div class="card">
-      <h1>この端末の名前</h1>
-      <div class="muted">最初の1回だけ選択（端末に保存）</div>
-      <div style="margin-top:12px; display:flex; flex-direction:column; gap:10px;">
-        ${MEMBERS.map(n => `<button onclick="onPickUser('${n}')">${n}</button>`).join("")}
-      </div>
-    </div>
-  `;
-}
-
-window.onPickUser = (name) => {
-  setUser(name);
+window.approve=()=>{
+  const d=now();
+  add({site,tool,toolName,type:"APPROVE",user:getUser(),t:d.toISOString(),hm:hm(d)});
+  toast("承認しました",hm(d));
   render();
 };
 
-function renderMain(){
-  const st = getToolState(toolId);
-  $app.innerHTML = `
-    <div class="card">
-      <h1>${toolName}</h1>
-      <div class="muted">状態：<span class="pill">${escapeHtml(st.status)}</span></div>
-
-      <div class="row" style="margin-top:14px;">
-        <button onclick="doTake()">持ち出し</button>
-      </div>
-
-      <div class="row">
-        <button onclick="startReturn()">返却（写真）</button>
-      </div>
-
-      <div class="row">
-        <button class="smallbtn" onclick="renderLogList()">この端末の履歴（デモ）</button>
-      </div>
-    </div>
-
-    <div id="cam" class="card hidden" style="margin-top:14px;">
-      <h1>返却（写真）</h1>
-      <div class="muted">写真は必須（システム内保存）</div>
-      <video id="v" autoplay playsinline></video>
-      <div class="camBtns">
-        <button onclick="captureReturn()">撮影</button>
-        <button class="smallbtn" onclick="cancelCamera()">やめる</button>
-      </div>
-    </div>
-  `;
-}
-
-function renderLogList(){
-  const logs = getLogs().filter(x => x.site===site).slice(-80).reverse();
-  $app.innerHTML = `
-    <div class="card">
-      <h1>履歴（端末内デモ）</h1>
-      <div class="muted">site=${escapeHtml(site)} の直近80件</div>
-      <div style="margin-top:10px;">
-        ${logs.map(l => `
-          <div class="list-item">
-            <span>${escapeHtml(l.toolName)}</span>
-            <span>${escapeHtml(l.type)} ${escapeHtml(l.user)} ${escapeHtml(l.hm)}</span>
-          </div>
-        `).join("") || `<div class="muted">まだありません</div>`}
-      </div>
-      <button style="margin-top:14px;" onclick="render()">戻る</button>
-    </div>
-  `;
-}
-
-window.renderLogList = renderLogList;
-
-/* ==========================
-   持ち出し（デモ）
-   ========================== */
-window.doTake = () => {
-  const user = getUser();
-  const d = new Date();
-  addLog({
-    site, tool: toolId, toolName,
-    type:"TAKE",
-    user,
-    time: d.toISOString(),
-    hm: fmtHM(d),
-  });
-  toast("持ち出しました", fmtHM(d), 2500);
-  renderHeader();
-};
-
-/* ==========================
-   返却：カメラ（デモ）
-   ========================== */
-let stream = null;
-
-window.startReturn = async () => {
-  document.getElementById("cam").classList.remove("hidden");
-  const v = document.getElementById("v");
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" },
-      audio: false
-    });
-    v.srcObject = stream;
-  }catch(e){
-    toast("カメラが使えません", "権限を許可してください", 2500);
-    document.getElementById("cam").classList.add("hidden");
-  }
-};
-
-window.cancelCamera = () => {
-  stopStream();
-  const cam = document.getElementById("cam");
-  if (cam) cam.classList.add("hidden");
-};
-
-function stopStream(){
-  if (stream){
-    stream.getTracks().forEach(t => t.stop());
-    stream = null;
-  }
-}
-
-window.captureReturn = async () => {
-  const v = document.getElementById("v");
-  if (!v || !v.videoWidth){
-    toast("撮影できません", "カメラが起動していません", 2500);
-    return;
-  }
-
-  // 1280x720程度に縮小（縦横比維持）
-  const maxW = 1280;
-  const scale = Math.min(1, maxW / v.videoWidth);
-  const w = Math.round(v.videoWidth * scale);
-  const h = Math.round(v.videoHeight * scale);
-
-  const c = document.createElement("canvas");
-  c.width = w; c.height = h;
-  const ctx = c.getContext("2d");
-  ctx.drawImage(v, 0, 0, w, h);
-
-  // JPEG圧縮（0.75）
-  const dataUrl = c.toDataURL("image/jpeg", 0.75);
-
-  stopStream();
-  document.getElementById("cam").classList.add("hidden");
-
-  const user = getUser();
-  const d = new Date();
-  addLog({
-    site, tool: toolId, toolName,
-    type:"RETURN",
-    user,
-    time: d.toISOString(),
-    hm: fmtHM(d),
-    photo: dataUrl, // デモ：端末内に保持（後でサーバ保存に置換）
-  });
-
-  toast("返却を記録しました", "確認待ち", 2500);
-  renderHeader();
-};
-
-/* ==========================
-   起動
-   ========================== */
+/* ===== 起動 ===== */
 function render(){
-  renderHeader();
-  if (!toolId) return renderNeedParams();
-  if (!getUser()) return renderUserSelect();
-  renderMain();
+  header();
+  if(!tool)return app.innerHTML="<div class='card'>tool指定なし</div>";
+  if(!getUser())return userSelect();
+  main();
 }
 render();
-
-window.addEventListener("pagehide", () => { stopStream(); });
 </script>
 </body>
 </html>
