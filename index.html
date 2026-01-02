@@ -20,7 +20,7 @@ button{
   position:fixed;top:40%;left:50%;
   transform:translate(-50%,-50%);
   background:#000;border:1px solid #333;
-  padding:20px 28px;border-radius:8px;text-align:center
+  padding:20px 28px;border-radius:8px;text-align:center;z-index:9999
 }
 .hidden{display:none}
 video{width:100%;border-radius:8px;border:1px solid #333;background:#000}
@@ -33,7 +33,9 @@ video{width:100%;border-radius:8px;border:1px solid #333;background:#000}
 <main id="app"></main>
 
 <script>
-/* ===== 設定 ===== */
+/* ====== 設定 ====== */
+const GAS_URL = "https://script.google.com/macros/s/AKfycbzQH_wIyl0sfM_FHx1_qiWq5Q4dGzMkYJ4mNEp9vpqzq0dpxPWSSs8Dgc2HBx1jhp0B/exec";
+
 const TOOL_NAME={
   T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
   T004:"誘導棒",D001:"その他（扉1）",D002:"その他（扉2）",D003:"その他（扉3）"
@@ -67,12 +69,25 @@ function toast(a,b="",ms=2500){
 function getUser(){return localStorage.getItem("user")||"";}
 function setUser(n){localStorage.setItem("user",n);}
 
-/* ===== ログ（端末内） ===== */
-function logs(){return JSON.parse(localStorage.getItem("logs")||"[]");}
-function save(l){localStorage.setItem("logs",JSON.stringify(l));}
-function add(e){const l=logs();l.push(e);save(l);}
-function last(){
-  return logs().filter(x=>x.site==site&&x.tool==tool).slice(-1)[0];
+/* ====== GASへ送信 ====== */
+async function sendToSheet(type){
+  const payload={
+    datetime: new Date().toISOString(),
+    site,
+    tool,
+    toolName,
+    action: type,
+    user: getUser()
+  };
+  try{
+    await fetch(GAS_URL,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(payload)
+    });
+  }catch(e){
+    toast("通信エラー","スプレッドシート未記録");
+  }
 }
 
 /* ===== 画面 ===== */
@@ -92,24 +107,14 @@ function userSelect(){
 window.pick=n=>{setUser(n);render();};
 
 function main(){
-  const l=last();
-  const state=l?l.type:"NONE";
-  let st="未使用";
-  if(state=="TAKE")st="使用中";
-  if(state=="RETURN")st="承認待ち";
-  if(state=="APPROVE")st="返却済";
-
   app.innerHTML=`
   <div class="card">
     <h3>${toolName}</h3>
-    <div class="pill">${st}</div>
 
     <button onclick="take()">持ち出し</button>
     <button onclick="ret()">返却（写真）</button>
 
-    ${isChecker ? `
-      <button class="small" onclick="approve()">承認（確認者）</button>
-    ` : ``}
+    ${isChecker?`<button class="small" onclick="approve()">承認（確認者）</button>`:""}
   </div>
 
   <div id="cam" class="card hidden">
@@ -119,9 +124,9 @@ function main(){
 }
 
 /* ===== 動作 ===== */
-window.take=()=>{
+window.take=async()=>{
   const d=now();
-  add({site,tool,toolName,type:"TAKE",user:getUser(),hm:hm(d)});
+  await sendToSheet("TAKE");
   toast("持ち出しました",hm(d));
 };
 
@@ -134,19 +139,17 @@ window.ret=async()=>{
   v.srcObject=stream;
 };
 
-window.shot=()=>{
+window.shot=async()=>{
   if(stream)stream.getTracks().forEach(t=>t.stop());
   const d=now();
-  add({site,tool,toolName,type:"RETURN",user:getUser(),hm:hm(d)});
+  await sendToSheet("RETURN");
   toast("返却を記録","承認待ち");
-  render();
 };
 
-window.approve=()=>{
+window.approve=async()=>{
   const d=now();
-  add({site,tool,toolName,type:"APPROVE",user:getUser(),hm:hm(d)});
+  await sendToSheet("APPROVE");
   toast("承認しました",hm(d));
-  render();
 };
 
 /* ===== 起動 ===== */
