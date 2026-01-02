@@ -32,7 +32,7 @@ video{width:100%;border-radius:8px;border:1px solid #333;background:#000}
 <main id="app"></main>
 
 <script>
-/* ===== 設定（確定） ===== */
+/* ===== 設定 ===== */
 const GAS_URL =
 "https://script.google.com/macros/s/AKfycbzQH_wIyl0sfM_FHx1_qiWq5Q4dGzMkYJ4mNEp9vpqzq0dpxPWSSs8Dgc2HBx1jhp0B/exec";
 
@@ -53,9 +53,6 @@ const toolName=TOOL_NAME[tool]||"不明";
 /* ===== 共通 ===== */
 const app=document.getElementById("app");
 const hdr=document.getElementById("hdr");
-const now=()=>new Date();
-const pad=n=>("0"+n).slice(-2);
-const hm=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 function toast(a,b="",ms=2500){
   const d=document.createElement("div");
@@ -65,27 +62,28 @@ function toast(a,b="",ms=2500){
   setTimeout(()=>d.remove(),ms);
 }
 
-/* ===== 端末名 ===== */
 function getUser(){return localStorage.getItem("user")||"";}
 function setUser(n){localStorage.setItem("user",n);}
 
-/* ====== GAS送信 ====== */
-async function sendToSheet(type){
+/* ===== GAS送信（CORS回避） ===== */
+function sendToSheet(type){
   const payload={
     datetime:new Date().toISOString(),
     site,tool,toolName,
     action:type,
     user:getUser()
   };
-  try{
-    await fetch(GAS_URL,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify(payload)
-    });
-  }catch(e){
-    toast("通信エラー","記録失敗");
-  }
+
+  fetch(GAS_URL,{
+    method:"POST",
+    mode:"no-cors",          // ★ これが肝
+    headers:{
+      "Content-Type":"text/plain;charset=utf-8"
+    },
+    body:JSON.stringify(payload)
+  });
+
+  // no-corsなのでレスポンスは見ない（問題なし）
 }
 
 /* ===== 表示 ===== */
@@ -109,44 +107,24 @@ function main(){
   <div class="card">
     <h3>${toolName}</h3>
     <button onclick="take()">持ち出し</button>
-    <button onclick="ret()">返却（写真）</button>
+    <button onclick="ret()">返却</button>
     ${isChecker?`<button class="small" onclick="approve()">承認（確認者）</button>`:""}
-  </div>
-
-  <div id="cam" class="card hidden">
-    <video id="v" autoplay playsinline></video>
-    <button onclick="shot()">撮影</button>
   </div>`;
 }
 
 /* ===== 動作 ===== */
-window.take=async()=>{
-  const d=now();
-  await sendToSheet("TAKE");
-  toast("持ち出しました",hm(d));
-};
-
-let stream=null;
-window.ret=async()=>{
-  const cam=document.getElementById("cam");
-  cam.classList.remove("hidden");
-  const v=document.getElementById("v");
-  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-  v.srcObject=stream;
-};
-
-window.shot=async()=>{
-  if(stream)stream.getTracks().forEach(t=>t.stop());
-  const d=now();
-  await sendToSheet("RETURN");
+function take(){
+  sendToSheet("TAKE");
+  toast("持ち出しました");
+}
+function ret(){
+  sendToSheet("RETURN");
   toast("返却を記録","承認待ち");
-};
-
-window.approve=async()=>{
-  const d=now();
-  await sendToSheet("APPROVE");
-  toast("承認しました",hm(d));
-};
+}
+function approve(){
+  sendToSheet("APPROVE");
+  toast("承認しました");
+}
 
 /* ===== 起動 ===== */
 function render(){
