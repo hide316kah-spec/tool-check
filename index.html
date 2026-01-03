@@ -10,7 +10,7 @@ header{padding:10px 12px;border-bottom:1px solid #333;color:#bbb;font-size:14px}
 main{padding:14px;max-width:560px;margin:auto}
 .card{border:1px solid #333;border-radius:12px;padding:16px;margin-bottom:14px}
 h2{margin:0 0 8px;font-size:20px}
-button{width:100%;padding:16px;font-size:20px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333}
+button{width:100%;padding:16px;font-size:20px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333;margin-top:10px}
 .stateOut{border-color:#a33}
 .statePending{border-color:#aa3}
 .stateIn{border-color:#333}
@@ -26,31 +26,38 @@ button{width:100%;padding:16px;font-size:20px;border-radius:12px;background:#1a1
 const GAS_URL =
 "https://script.google.com/macros/s/AKfycbxVpcXoJFFmO_sqOi76kMrD6hgFBR4CdCD5hpI_4bTLD3VeVrP2qbxDiJ_RTrotzLsx/exec";
 
-const TOOL_NAME={
-  T001:"手歯止め",
-  T002:"デジタルゲージ",
-  T003:"検測用具",
-  T004:"誘導棒"
-};
-
 /* ===== URL ===== */
 const p=new URLSearchParams(location.search);
 const site=p.get("site")||"未指定";
 const tool=p.get("tool")||"未指定";
-const toolName=TOOL_NAME[tool]||tool;
 
 /* ===== DOM ===== */
 const hdr=document.getElementById("hdr");
 const app=document.getElementById("app");
 
-/* ===== 表示 ===== */
-hdr.textContent=`現場：${site}　道具：${toolName}（${tool}）`;
+hdr.textContent=`現場：${site}　道具：${tool}`;
 
-function draw(state,text,sub){
+/* ===== POST ===== */
+async function post(action){
+  await fetch(GAS_URL,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      site, tool,
+      toolName:tool,
+      action,
+      user:"現場端末"
+    })
+  });
+}
+
+/* ===== 描画 ===== */
+function draw(state,title,sub,buttons){
   app.innerHTML=`
     <div class="card ${state}">
-      <h2>${text}</h2>
+      <h2>${title}</h2>
       <div class="small">${sub||""}</div>
+      ${buttons||""}
     </div>
   `;
 }
@@ -63,37 +70,55 @@ async function loadStatus(){
       GAS_URL+"?mode=status&site="+encodeURIComponent(site)+"&t="+Date.now()
     );
     const j=await r.json();
-    if(j.result!=="ok") throw "bad";
-
     const me=j.items.find(x=>x.tool===tool);
 
     if(!me){
-      draw("stateIn","異常なし","持ち出し・返却待ちはありません");
+      draw(
+        "stateIn",
+        "異常なし",
+        "持ち出し・返却待ちはありません",
+        `<button onclick="take()">持ち出し</button>`
+      );
       return;
     }
 
     if(me.status==="OUT"){
-      draw("stateOut","持ち出し中",
-        `実行者：${me.by||""} / ${new Date(me.at).toLocaleString()}`
+      draw(
+        "stateOut",
+        "持ち出し中",
+        "",
+        `<button onclick="ret()">返却</button>`
       );
       return;
     }
 
     if(me.status==="PENDING"){
-      draw("statePending","返却確認待ち",
-        `実行者：${me.by||""} / ${new Date(me.at).toLocaleString()}`
+      draw(
+        "statePending",
+        "返却確認待ち",
+        "",
+        ""
       );
       return;
     }
-
-    draw("stateIn","異常なし","");
 
   }catch(e){
     draw("stateIn","通信失敗","状態を取得できません");
   }
 }
 
-/* ===== 実行 ===== */
+/* ===== 操作 ===== */
+async function take(){
+  await post("持ち出し");
+  loadStatus();
+}
+
+async function ret(){
+  await post("返却");
+  loadStatus();
+}
+
+/* ===== 起動 ===== */
 loadStatus();
 setInterval(loadStatus,15000);
 </script>
