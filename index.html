@@ -34,22 +34,7 @@ const tool=p.get("tool")||"未指定";
 /* ===== DOM ===== */
 const hdr=document.getElementById("hdr");
 const app=document.getElementById("app");
-
 hdr.textContent=`現場：${site}　道具：${tool}`;
-
-/* ===== POST ===== */
-async function post(action){
-  await fetch(GAS_URL,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      site, tool,
-      toolName:tool,
-      action,
-      user:"現場端末"
-    })
-  });
-}
 
 /* ===== 描画 ===== */
 function draw(state,title,sub,buttons){
@@ -62,15 +47,39 @@ function draw(state,title,sub,buttons){
   `;
 }
 
-/* ===== 状態取得 ===== */
+/* ===== POST ===== */
+async function post(action){
+  try{
+    await fetch(GAS_URL,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        site, tool,
+        toolName:tool,
+        action,
+        user:"現場端末"
+      })
+    });
+  }catch(_){}
+}
+
+/* ===== 状態取得（止まらない版） ===== */
 async function loadStatus(){
   draw("stateIn","状態取得中…","");
+
+  const controller = new AbortController();
+  setTimeout(()=>controller.abort(), 5000); // 5秒で打ち切り
+
   try{
-    const r=await fetch(
-      GAS_URL+"?mode=status&site="+encodeURIComponent(site)+"&t="+Date.now()
+    const r = await fetch(
+      GAS_URL+"?mode=status&site="+encodeURIComponent(site)+"&t="+Date.now(),
+      { signal: controller.signal }
     );
-    const j=await r.json();
-    const me=j.items.find(x=>x.tool===tool);
+
+    const j = await r.json().catch(()=>({}));
+
+    const items = Array.isArray(j.items) ? j.items : [];
+    const me = items.find(x=>x && x.tool===tool);
 
     if(!me){
       draw(
@@ -102,18 +111,21 @@ async function loadStatus(){
       return;
     }
 
+    draw("stateIn","異常なし","");
+
   }catch(e){
-    draw("stateIn","通信失敗","状態を取得できません");
+    draw("stateIn","通信失敗","再読み込みしてください");
   }
 }
 
 /* ===== 操作 ===== */
 async function take(){
+  draw("stateIn","処理中…","");
   await post("持ち出し");
   loadStatus();
 }
-
 async function ret(){
+  draw("stateIn","処理中…","");
   await post("返却");
   loadStatus();
 }
