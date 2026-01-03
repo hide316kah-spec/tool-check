@@ -66,6 +66,7 @@ function vibrate(ms){
 function getUser(){return localStorage.getItem("user")||"";}
 function setUser(n){localStorage.setItem("user",n);}
 
+/* ===== POST（★CORS対策済み） ===== */
 async function post(action, photoDataUrl){
   const payload={
     datetime:new Date().toISOString(),
@@ -76,10 +77,10 @@ async function post(action, photoDataUrl){
 
   const r = await fetch(GAS_URL,{
     method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(payload)
+    // ★ Content-Type を指定しない（プリフライト回避）
+    body: JSON.stringify(payload)
   });
-  // 失敗時にcatchへ落とすため
+
   if(!r.ok) throw new Error("http "+r.status);
   const js = await r.json().catch(()=>({}));
   if(js.result!=="ok") throw new Error(js.message || "gas error");
@@ -156,7 +157,6 @@ function ui(statusItems){
 }
 
 function renderList(items){
-  // OUT/PENDINGだけ表示（状態が無い=異常なしは全体で表示）
   const active = items.filter(x=>x.status==="OUT"||x.status==="PENDING");
   if(active.length===0){
     return `<div class="item"><b>異常なし</b><div class="meta">持ち出し中／返却確認待ちはありません</div></div>`;
@@ -190,7 +190,6 @@ window.take=async()=>{
 
 window.startReturn=async()=>{
   if(!tool){ toast("エラー","toolが指定されていません"); return; }
-  // iOS対策：ボタン操作直後にgetUserMedia
   try{
     const cam=document.getElementById("cam");
     cam.classList.remove("hidden");
@@ -211,7 +210,6 @@ window.cancelCam=()=>{
 async function captureJpegDataUrl_(){
   const v=document.getElementById("v");
   if(!v) throw new Error("video not found");
-  // iOS対策：videoの描画を待つ
   await new Promise(r=>setTimeout(r,150));
   const c=document.createElement("canvas");
   const w=v.videoWidth||1280, h=v.videoHeight||720;
@@ -251,7 +249,6 @@ async function refresh(){
     const items = await getStatus();
     ui(items);
   }catch(e){
-    // 状態取得失敗でも操作画面は出す
     ui([]);
     toast("通信エラー","状態を取得できません");
   }
@@ -261,7 +258,6 @@ function render(){
   header();
   if(!getUser()){ showUserSelect(); return; }
   refresh();
-  // 15秒ごとに自動更新（できないなら無視される）
   setInterval(refresh, 15000);
 }
 render();
