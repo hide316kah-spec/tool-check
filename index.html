@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>器具員数確認</title>
+<title>器具確認</title>
 <style>
 body{margin:0;background:#111;color:#fff;font-family:-apple-system}
 header{padding:10px 12px;border-bottom:1px solid #333;color:#bbb;font-size:14px}
 main{padding:14px;max-width:560px;margin:auto}
 .card{border:1px solid #333;border-radius:12px;padding:16px;margin-bottom:14px}
 h2{margin:0 0 8px;font-size:20px}
-button{width:100%;padding:16px;font-size:20px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333;margin-top:10px}
+button{width:100%;padding:16px;font-size:18px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333;margin-top:10px}
 .stateOut{border-color:#a33}
 .statePending{border-color:#aa3}
 .stateIn{border-color:#333}
@@ -27,96 +27,87 @@ const GAS_URL =
 
 const p=new URLSearchParams(location.search);
 const site=p.get("site")||"未指定";
-const tool=p.get("tool")||"未指定";
+const tool=p.get("tool"); // ← 無い場合あり
 
 const hdr=document.getElementById("hdr");
 const app=document.getElementById("app");
 
-hdr.textContent=`現場：${site}　道具：${tool}`;
+hdr.textContent = tool
+  ? `現場：${site}　道具：${tool}`
+  : `現場：${site}　確認者画面`;
 
-function draw(state,title,sub,buttons){
-  app.innerHTML=`
-    <div class="card ${state}">
-      <h2>${title}</h2>
-      <div class="small">${sub||""}</div>
-      ${buttons||""}
-    </div>
-  `;
-}
-
-async function post(action){
-  try{
-    await fetch(GAS_URL,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        site, tool,
-        toolName:tool,
-        action,
-        user:"現場端末"
-      })
-    });
-  }catch(_){}
+function draw(html){
+  app.innerHTML = html;
 }
 
 async function loadStatus(){
-  draw("stateIn","状態取得中…","");
+  draw(`<div class="card stateIn"><h2>状態取得中…</h2></div>`);
 
   try{
     const r = await fetch(
       GAS_URL+"?mode=status&site="+encodeURIComponent(site)+"&t="+Date.now()
     );
     const j = await r.json();
-
     const items = Array.isArray(j.items) ? j.items : [];
-    const me = items.find(x=>x && x.tool===tool);
 
+    /* ===== 確認者モード ===== */
+    if(!tool){
+      if(items.length===0){
+        draw(`<div class="card stateIn"><h2>異常なし</h2></div>`);
+        return;
+      }
+      draw(items.map(x=>`
+        <div class="card ${x.status==="OUT"?"stateOut":"statePending"}">
+          <h2>${x.toolName||x.tool}</h2>
+          <div class="small">${x.status} / ${x.by||""}</div>
+        </div>
+      `).join(""));
+      return;
+    }
+
+    /* ===== 作業者モード ===== */
+    const me = items.find(x=>x.tool===tool);
     if(!me){
-      draw(
-        "stateIn",
-        "異常なし",
-        "持ち出し・返却待ちはありません",
-        `<button onclick="take()">持ち出し</button>`
-      );
+      draw(`
+        <div class="card stateIn">
+          <h2>異常なし</h2>
+          <button onclick="post('持ち出し')">持ち出し</button>
+        </div>
+      `);
       return;
     }
 
     if(me.status==="OUT"){
-      draw(
-        "stateOut",
-        "持ち出し中",
-        "",
-        `<button onclick="ret()">返却</button>`
-      );
+      draw(`
+        <div class="card stateOut">
+          <h2>持ち出し中</h2>
+          <button onclick="post('返却')">返却</button>
+        </div>
+      `);
       return;
     }
 
     if(me.status==="PENDING"){
-      draw(
-        "statePending",
-        "返却確認待ち",
-        "",
-        ""
-      );
+      draw(`<div class="card statePending"><h2>返却確認待ち</h2></div>`);
       return;
     }
 
-    draw("stateIn","異常なし","");
-
   }catch(e){
-    draw("stateIn","通信失敗","再読み込みしてください");
+    draw(`<div class="card stateIn"><h2>通信失敗</h2></div>`);
   }
 }
 
-async function take(){
-  draw("stateIn","処理中…","");
-  await post("持ち出し");
-  loadStatus();
-}
-
-async function ret(){
-  draw("stateIn","処理中…","");
-  await post("返却");
+async function post(action){
+  await fetch(GAS_URL,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      site, tool,
+      toolName:tool,
+      action,
+      user:"現場端末"
+    })
+  });
   loadStatus();
 }
 
