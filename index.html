@@ -22,21 +22,18 @@ button{width:100%;padding:16px;font-size:20px;border-radius:12px;background:#1a1
 <main id="app"></main>
 
 <script>
-/* ===== 設定 ===== */
 const GAS_URL =
 "https://script.google.com/macros/s/AKfycbxVpcXoJFFmO_sqOi76kMrD6hgFBR4CdCD5hpI_4bTLD3VeVrP2qbxDiJ_RTrotzLsx/exec";
 
-/* ===== URL ===== */
 const p=new URLSearchParams(location.search);
 const site=p.get("site")||"未指定";
 const tool=p.get("tool")||"未指定";
 
-/* ===== DOM ===== */
 const hdr=document.getElementById("hdr");
 const app=document.getElementById("app");
+
 hdr.textContent=`現場：${site}　道具：${tool}`;
 
-/* ===== 描画 ===== */
 function draw(state,title,sub,buttons){
   app.innerHTML=`
     <div class="card ${state}">
@@ -47,7 +44,6 @@ function draw(state,title,sub,buttons){
   `;
 }
 
-/* ===== POST ===== */
 async function post(action){
   try{
     await fetch(GAS_URL,{
@@ -63,20 +59,14 @@ async function post(action){
   }catch(_){}
 }
 
-/* ===== 状態取得（止まらない版） ===== */
 async function loadStatus(){
   draw("stateIn","状態取得中…","");
 
-  const controller = new AbortController();
-  setTimeout(()=>controller.abort(), 5000); // 5秒で打ち切り
-
   try{
     const r = await fetch(
-      GAS_URL+"?mode=status&site="+encodeURIComponent(site)+"&t="+Date.now(),
-      { signal: controller.signal }
+      GAS_URL+"?mode=status&site="+encodeURIComponent(site)+"&t="+Date.now()
     );
-
-    const j = await r.json().catch(()=>({}));
+    const j = await r.json();
 
     const items = Array.isArray(j.items) ? j.items : [];
     const me = items.find(x=>x && x.tool===tool);
@@ -118,19 +108,18 @@ async function loadStatus(){
   }
 }
 
-/* ===== 操作 ===== */
 async function take(){
   draw("stateIn","処理中…","");
   await post("持ち出し");
   loadStatus();
 }
+
 async function ret(){
   draw("stateIn","処理中…","");
   await post("返却");
   loadStatus();
 }
 
-/* ===== 起動 ===== */
 loadStatus();
 setInterval(loadStatus,15000);
 </script>
