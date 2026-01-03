@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>返却確認</title>
+<style>
+body{margin:0;background:#111;color:#fff;font-family:-apple-system}
+header{padding:10px 12px;border-bottom:1px solid #333;color:#bbb;font-size:14px}
+main{padding:14px;max-width:560px;margin:auto}
+.card{border:1px solid #333;border-radius:12px;padding:14px;margin-bottom:12px}
+.item{border:1px solid #aa3;border-radius:12px;padding:12px;margin-top:10px}
+.item b{display:block;font-size:16px}
+.meta{opacity:.7;font-size:13px;margin-top:6px}
+button{width:100%;padding:12px;margin-top:10px;font-size:16px;border-radius:10px;background:#1a1a1a;color:#fff;border:1px solid #333}
+.small{font-size:14px;padding:10px}
+.toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000;border:1px solid #333;padding:18px 22px;border-radius:12px;z-index:9999}
+</style>
+</head>
+<body>
+<header id="hdr"></header>
+<main id="app"></main>
+
+<script>
+/* ===== 設定 ===== */
+const GAS_URL="https://script.google.com/macros/s/AKfycbzQH_wIyl0sfM_FHx1_qiWq5Q4dGzMkYJ4mNEp9vpqzq0dpxPWSSs8Dgc2HBx1jhp0B/exec";
+
+/* ===== URL ===== */
+const p=new URLSearchParams(location.search);
+const site=(p.get("site")||"").trim() || "";
+
+/* ===== 共通 ===== */
+const app=document.getElementById("app");
+const hdr=document.getElementById("hdr");
+
+function toast(t,ms=1600){
+  const d=document.createElement("div");
+  d.className="toast";
+  d.textContent=t;
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),ms);
+}
+
+function getUser(){return localStorage.getItem("user")||"";}
+function setUser(n){localStorage.setItem("user",n);}
+
+/* ===== 通信 ===== */
+async function postConfirm(tool, toolName){
+  const payload={
+    datetime:new Date().toISOString(),
+    site,
+    tool,
+    toolName,
+    action:"確認",
+    user:getUser()
+  };
+
+  const r = await fetch(GAS_URL,{
+    method:"POST",
+    body:JSON.stringify(payload)
+  });
+  if(!r.ok) throw new Error();
+  const js = await r.json();
+  if(js.result!=="ok") throw new Error();
+}
+
+async function getStatus(){
+  const r = await fetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`);
+  const js = await r.json();
+  if(js.result!=="ok") throw new Error();
+  return js.items||[];
+}
+
+/* ===== UI ===== */
+function header(){
+  hdr.textContent = `返却確認用　現場：${site}　確認者：${getUser()||"未設定"}`;
+}
+
+function askName(){
+  app.innerHTML=`
+    <div class="card">
+      <h2>確認者名を入力</h2>
+      <input id="name" placeholder="名前" style="width:100%;padding:12px;font-size:16px;border-radius:10px;border:1px solid #333;background:#000;color:#fff">
+      <button onclick="saveName()">OK</button>
+    </div>`;
+}
+window.saveName=()=>{
+  const v=document.getElementById("name").value.trim();
+  if(!v){ toast("名前を入力"); return; }
+  setUser(v);
+  render();
+};
+
+function renderList(items){
+  const pending = items.filter(x=>x.status==="PENDING");
+  if(pending.length===0){
+    return `<div class="card">確認待ちはありません</div>`;
+  }
+  return pending.map(x=>`
+    <div class="item">
+      <b>${x.toolName}（${x.tool}）</b>
+      <div class="meta">返却者：${x.by||""}</div>
+      <div class="meta">時刻：${x.at ? new Date(x.at).toLocaleString() : ""}</div>
+      ${x.photoUrl ? `<button class="small" onclick="openPhoto('${x.photoUrl}')">写真を見る</button>` : ``}
+      <button onclick="confirm('${x.tool}','${x.toolName.replace(/'/g,"")}')">確認</button>
+    </div>
+  `).join("");
+}
+
+window.openPhoto=(u)=>{ window.open(u,"_blank"); };
+
+window.confirm=async(tool, toolName)=>{
+  try{
+    await postConfirm(tool, toolName);
+    toast("確認しました");
+    refresh();
+  }catch(e){
+    toast("通信エラー");
+  }
+};
+
+async function refresh(){
+  try{
+    const items = await getStatus();
+    app.innerHTML = renderList(items);
+  }catch(e){
+    toast("取得失敗");
+  }
+}
+
+function render(){
+  header();
+  if(!site){
+    app.innerHTML=`<div class="card">site が指定されていません</div>`;
+    return;
+  }
+  if(!getUser()){
+    askName();
+    return;
+  }
+  refresh();
+  setInterval(refresh, 10000); // 軽く10秒
+}
+
+render();
+</script>
+</body>
+</html>
