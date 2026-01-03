@@ -25,32 +25,51 @@ button{width:100%;padding:16px;font-size:18px;border-radius:12px;background:#1a1
 const GAS_URL =
 "https://script.google.com/macros/s/AKfycbxVpcXoJFFmO_sqOi76kMrD6hgFBR4CdCD5hpI_4bTLD3VeVrP2qbxDiJ_RTrotzLsx/exec";
 
-const p=new URLSearchParams(location.search);
-const site=p.get("site")||"未指定";
-const tool=p.get("tool"); // ← 無い場合あり
+const p = new URLSearchParams(location.search);
+const site = p.get("site") || "未指定";
+const tool = p.get("tool"); // 無ければ確認者
 
-const hdr=document.getElementById("hdr");
-const app=document.getElementById("app");
+const hdr = document.getElementById("hdr");
+const app = document.getElementById("app");
 
 hdr.textContent = tool
   ? `現場：${site}　道具：${tool}`
-  : `現場：${site}　確認者画面`;
+  : `現場：${site}　確認者`;
 
 function draw(html){
   app.innerHTML = html;
 }
 
-async function loadStatus(){
+function fetchWithTimeout(url, ms){
+  return Promise.race([
+    fetch(url).then(r=>r.json()),
+    new Promise((_,reject)=>setTimeout(()=>reject("timeout"), ms))
+  ]);
+}
+
+function post(action){
+  return fetch(GAS_URL,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      site, tool,
+      toolName:tool||"",
+      action,
+      user:"現場端末"
+    })
+  });
+}
+
+function loadStatus(){
   draw(`<div class="card stateIn"><h2>状態取得中…</h2></div>`);
 
-  try{
-    const r = await fetch(
-      GAS_URL+"?mode=status&site="+encodeURIComponent(site)+"&t="+Date.now()
-    );
-    const j = await r.json();
+  fetchWithTimeout(
+    GAS_URL+"?mode=status&site="+encodeURIComponent(site)+"&t="+Date.now(),
+    5000
+  ).then(j=>{
     const items = Array.isArray(j.items) ? j.items : [];
 
-    /* ===== 確認者モード ===== */
+    /* ===== 確認者 ===== */
     if(!tool){
       if(items.length===0){
         draw(`<div class="card stateIn"><h2>異常なし</h2></div>`);
@@ -65,13 +84,13 @@ async function loadStatus(){
       return;
     }
 
-    /* ===== 作業者モード ===== */
+    /* ===== 作業者 ===== */
     const me = items.find(x=>x.tool===tool);
     if(!me){
       draw(`
         <div class="card stateIn">
           <h2>異常なし</h2>
-          <button onclick="post('持ち出し')">持ち出し</button>
+          <button onclick="doTake()">持ち出し</button>
         </div>
       `);
       return;
@@ -81,7 +100,7 @@ async function loadStatus(){
       draw(`
         <div class="card stateOut">
           <h2>持ち出し中</h2>
-          <button onclick="post('返却')">返却</button>
+          <button onclick="doReturn()">返却</button>
         </div>
       `);
       return;
@@ -92,23 +111,21 @@ async function loadStatus(){
       return;
     }
 
-  }catch(e){
-    draw(`<div class="card stateIn"><h2>通信失敗</h2></div>`);
-  }
+    draw(`<div class="card stateIn"><h2>異常なし</h2></div>`);
+
+  }).catch(()=>{
+    draw(`<div class="card stateIn"><h2>取得失敗</h2><div class="small">再読み込みしてください</div></div>`);
+  });
 }
 
-async function post(action){
-  await fetch(GAS_URL,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      site, tool,
-      toolName:tool,
-      action,
-      user:"現場端末"
-    })
-  });
-  loadStatus();
+function doTake(){
+  draw(`<div class="card stateIn"><h2>処理中…</h2></div>`);
+  post("持ち出し").finally(loadStatus);
+}
+
+function doReturn(){
+  draw(`<div class="card stateIn"><h2>処理中…</h2></div>`);
+  post("返却").finally(loadStatus);
 }
 
 loadStatus();
