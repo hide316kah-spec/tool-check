@@ -10,13 +10,9 @@ header{padding:10px 12px;border-bottom:1px solid #333;color:#bbb;font-size:14px}
 main{padding:14px;max-width:560px;margin:auto}
 .card{border:1px solid #333;border-radius:12px;padding:14px;margin-bottom:12px}
 h2{margin:0 0 8px 0;font-size:18px}
-.badge{display:inline-block;border:1px solid #333;border-radius:999px;padding:2px 8px;font-size:12px;color:#bbb;margin-left:6px}
 button{width:100%;padding:14px;margin-top:10px;font-size:18px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333}
 .small{font-size:14px;padding:10px}
-.toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000;border:1px solid #333;padding:18px 22px;border-radius:12px;text-align:center;z-index:9999}
-.list .item{border:1px solid #333;border-radius:12px;padding:12px;margin-top:10px}
-.item b{display:block;font-size:16px}
-.item .meta{opacity:.7;font-size:13px;margin-top:6px}
+.toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000;border:1px solid #333;padding:18px 22px;border-radius:12px;z-index:9999}
 video{width:100%;border-radius:12px;border:1px solid #333;background:#000}
 .hidden{display:none}
 .stateOut{border-color:#a33}
@@ -29,127 +25,105 @@ video{width:100%;border-radius:12px;border:1px solid #333;background:#000}
 <main id="app"></main>
 
 <script>
-/* ===== 設定 ===== */
 const GAS_URL="https://script.google.com/macros/s/AKfycbxVpcXoJFFmO_sqOi76kMrD6hgFBR4CdCD5hpI_4bTLD3VeVrP2qbxDiJ_RTrotzLsx/exec";
 
-const TOOL_NAME={
-  T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
-  T004:"誘導棒",D001:"その他（扉1）",D002:"その他（扉2）",D003:"その他（扉3）"
-};
+const TOOL_NAME={T001:"手歯止め"};
 const MEMBERS=["佐藤","山田","高橋"];
 
-/* ===== URL ===== */
 const p=new URLSearchParams(location.search);
 const site=(p.get("site")||"").trim() || "A";
 const tool=(p.get("tool")||"").trim();
 const toolName=TOOL_NAME[tool]||"不明";
 
-/* ===== 共通 ===== */
 const app=document.getElementById("app");
 const hdr=document.getElementById("hdr");
 
-function toast(a,b="",ms=2200){
+function toast(t){
   const d=document.createElement("div");
   d.className="toast";
-  d.innerHTML=`<div style="font-size:20px">${a}</div><div style="opacity:.7;font-size:14px;margin-top:6px">${b}</div>`;
+  d.textContent=t;
   document.body.appendChild(d);
-  setTimeout(()=>d.remove(),ms);
-}
-
-function vibrate(ms){
-  try{ navigator.vibrate && navigator.vibrate(ms); }catch(_){}
+  setTimeout(()=>d.remove(),2000);
 }
 
 function getUser(){return localStorage.getItem("user")||"";}
 function setUser(n){localStorage.setItem("user",n);}
 
-/* ===== 通信（CORS回避済み） ===== */
 async function post(action, photoDataUrl){
-  const payload={ datetime:new Date().toISOString(), site, tool, toolName, action, user:getUser() };
-  if(photoDataUrl) payload.photoDataUrl = photoDataUrl;
-
-  const r = await fetch(GAS_URL,{ method:"POST", body:JSON.stringify(payload) });
-  if(!r.ok) throw new Error("http "+r.status);
-  const js = await r.json();
-  if(js.result!=="ok") throw new Error(js.message||"gas error");
+  const payload={datetime:new Date().toISOString(),site,tool,toolName,action,user:getUser()};
+  if(photoDataUrl) payload.photoDataUrl=photoDataUrl;
+  const r=await fetch(GAS_URL,{method:"POST",body:JSON.stringify(payload)});
+  if(!r.ok) throw new Error();
+  const j=await r.json();
+  if(j.result!=="ok") throw new Error();
 }
 
 async function getStatus(){
-  const r = await fetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`);
-  const js = await r.json();
-  if(js.result!=="ok") throw new Error();
-  return js.items||[];
+  const r=await fetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}`);
+  const j=await r.json();
+  if(j.result!=="ok") throw new Error();
+  return j.items||[];
 }
 
-/* ===== UI ===== */
 function showUserSelect(){
-  app.innerHTML=`<div class="card"><h2>この端末の名前</h2>${
-    MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")
-  }</div>`;
+  app.innerHTML=MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("");
 }
-window.pick=n=>{ setUser(n); render(); };
+window.pick=n=>{setUser(n);render();};
 
 function header(){
-  hdr.textContent=`現場：${site}　道具：${toolName}（${tool||"未指定"}）　端末：${getUser()||"未設定"}`;
+  hdr.textContent=`現場：${site}　道具：${toolName}（${tool}）　端末：${getUser()}`;
 }
 
 function ui(items){
   const me=items.find(x=>x.tool===tool);
   const st=!me?"異常なし":me.status==="OUT"?"持ち出し中":me.status==="PENDING"?"返却確認待ち":"異常なし";
+
   app.innerHTML=`
-  <div class="card ${me?.status==="OUT"?"stateOut":me?.status==="PENDING"?"statePending":"stateIn"}">
-    <h2>状態</h2><div>${st}</div>
-    ${me?.photoUrl?`<button class="small" onclick="open('${me.photoUrl}')">写真</button>`:""}
-    ${me?.status==="PENDING"?`<button onclick="confirmOk()">確認</button>`:""}
-  </div>
-  <div class="card">
-    <button onclick="take()">持ち出し</button>
-    <button onclick="startReturn()">返却</button>
-    <div id="cam" class="hidden">
-      <video id="v" autoplay playsinline></video>
-      <button onclick="shotAndSend()">撮影して返却</button>
+    <div class="card ${me?.status==="OUT"?"stateOut":me?.status==="PENDING"?"statePending":"stateIn"}">
+      <h2>${st}</h2>
+      ${me?.status==="PENDING"?`<button onclick="confirmOk()">確認</button>`:""}
     </div>
-  </div>`;
+    <div class="card">
+      <button onclick="take()">持ち出し</button>
+    </div>
+  `;
 }
 
-/* ===== カメラ（超低画質） ===== */
-let stream=null;
-async function captureJpegDataUrl_(){
-  const v=document.getElementById("v");
-  await new Promise(r=>setTimeout(r,150));
-  const c=document.createElement("canvas");
-  c.width=640; c.height=360;
-  c.getContext("2d").drawImage(v,0,0,640,360);
-  return c.toDataURL("image/jpeg",0.4);
-}
-
-window.take=async()=>{ await post("持ち出し"); vibrate(80); refresh(); };
-window.startReturn=async()=>{
-  const cam=document.getElementById("cam");
-  cam.classList.remove("hidden");
-  const v=document.getElementById("v");
-  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-  v.srcObject=stream;
+window.take=async()=>{
+  try{
+    await post("持ち出し");
+    toast("持ち出しOK");
+    refresh();
+  }catch{
+    toast("通信エラー");
+  }
 };
-window.shotAndSend=async()=>{
-  const img=await captureJpegDataUrl_();
-  stream.getTracks().forEach(t=>t.stop());
-  await post("返却",img);
-  vibrate([60,60,60]);
-  refresh();
-};
-window.confirmOk=async()=>{ await post("確認"); refresh(); };
 
+window.confirmOk=async()=>{
+  try{
+    await post("確認");
+    toast("確認OK");
+    refresh();
+  }catch{
+    toast("通信エラー");
+  }
+};
+
+/* ★ここが本命修正 */
 async function refresh(){
-  const items=await getStatus();
-  ui(items);
+  try{
+    const items=await getStatus();
+    ui(items);
+  }catch(e){
+    ui([]);            // ← 必ず描画
+    toast("状態取得失敗");
+  }
 }
 
 function render(){
   header();
   if(!getUser()) return showUserSelect();
   refresh();
-  setInterval(refresh,15000);
 }
 render();
 </script>
