@@ -10,6 +10,8 @@ header{padding:10px 12px;border-bottom:1px solid #333;color:#bbb;font-size:14px}
 main{padding:14px;max-width:560px;margin:auto}
 .card{border:1px solid #333;border-radius:12px;padding:14px;margin-bottom:12px}
 h2{margin:0 0 8px 0;font-size:18px}
+.badge{display:inline-block;border:1px solid #333;border-radius:999px;padding:2px 8px;font-size:12px;color:#bbb;margin-left:6px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
 button{width:100%;padding:14px;margin-top:10px;font-size:18px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333}
 .small{font-size:14px;padding:10px}
 .toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000;border:1px solid #333;padding:18px 22px;border-radius:12px;text-align:center;z-index:9999}
@@ -30,91 +32,283 @@ video{width:100%;border-radius:12px;border:1px solid #333;background:#000}
 <script>
 /* ===== 設定 ===== */
 const GAS_URL="https://script.google.com/macros/s/AKfycbxA6CfRHv3pchb7nQfhsGcOagEZYNmFDmS31yoGbxF6LyJOILVKfL63qK8sFb4YtQXCZg/exec";
-const TOOL_NAME={T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",T004:"誘導棒"};
+
+const TOOL_NAME={
+  T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
+  T004:"誘導棒",D001:"その他（扉1）",D002:"その他（扉2）",D003:"その他（扉3）"
+};
 const MEMBERS=["佐藤","山田","高橋"];
 
 /* ===== URL ===== */
 const p=new URLSearchParams(location.search);
-const site=(p.get("site")||"").trim();
+const site=(p.get("site")||"").trim() || "A";
 const tool=(p.get("tool")||"").trim();
-const confirmMode=(p.get("confirm")||"")==="1";
+const toolName=TOOL_NAME[tool]||"不明";
 
 /* ===== 共通 ===== */
 const app=document.getElementById("app");
 const hdr=document.getElementById("hdr");
-function toast(a,b="",ms=1600){
+
+function toast(a,b="",ms=2200){
   const d=document.createElement("div");
   d.className="toast";
-  d.innerHTML=`<div style="font-size:20px">${a}</div>${b?`<div style="opacity:.7;font-size:14px;margin-top:6px">${b}</div>`:""}`;
-  document.body.appendChild(d); setTimeout(()=>d.remove(),ms);
+  d.innerHTML=`<div style="font-size:20px">${a}</div><div style="opacity:.7;font-size:14px;margin-top:6px">${b}</div>`;
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),ms);
 }
-function vibrate(ms){try{navigator.vibrate&&navigator.vibrate(ms);}catch(_){}}
+function vibrate(ms){
+  try{ if (navigator.vibrate) navigator.vibrate(ms); }catch(_){}
+}
 function getUser(){return localStorage.getItem("user")||"";}
 function setUser(n){localStorage.setItem("user",n);}
-function statusLabel(s){ if(s==="OUT")return"持ち出し中"; if(s==="PENDING")return"返却確認待ち"; return"持ち出し無し"; }
 
-/* ===== 通信 ===== */
-async function fetchJson(url,opt={},to=10000){
-  const ac=new AbortController(); const t=setTimeout(()=>ac.abort(),to);
-  try{ const r=await fetch(url,{...opt,signal:ac.signal}); if(!r.ok)throw 0; return await r.json(); }
-  finally{ clearTimeout(t); }
+/* ===== status: JSONP ===== */
+function jsonp_(url, timeoutMs=8000){
+  return new Promise((resolve,reject)=>{
+    const cb="cb_"+Math.random().toString(36).slice(2);
+    const s=document.createElement("script");
+    const t=setTimeout(()=>{ cleanup(); reject(new Error("timeout")); }, timeoutMs);
+
+    function cleanup(){
+      clearTimeout(t);
+      try{ delete window[cb]; }catch(_){ window[cb]=undefined; }
+      if (s.parentNode) s.parentNode.removeChild(s);
+    }
+
+    window[cb]=(data)=>{ cleanup(); resolve(data); };
+    s.onerror=()=>{ cleanup(); reject(new Error("load error")); };
+
+    s.src = url + (url.includes("?") ? "&" : "?") + "callback=" + encodeURIComponent(cb) + "&t=" + Date.now();
+    document.body.appendChild(s);
+  });
 }
+
 async function getStatus(){
-  const js=await fetchJson(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`,{method:"GET"},8000);
-  if(!js||js.result!=="ok")throw 0; return js.items||[];
-}
-async function post(action, payload={}){
-  return fetchJson(GAS_URL,{
-    method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({datetime:new Date().toISOString(),site,tool,toolName:TOOL_NAME[tool],action,user:getUser(),...payload})
-  },15000);
+  const url = `${GAS_URL}?mode=status&site=${encodeURIComponent(site)}`;
+  const js = await jsonp_(url);
+  if(js.result!=="ok") throw new Error("status error");
+  return js.items || [];
 }
 
-/* ===== UI ===== */
-function header(){
-  hdr.textContent=confirmMode
-    ?`返却確認用　現場：${site}　端末：${getUser()||"未設定"}`
-    :`現場：${site}　道具：${TOOL_NAME[tool]||""}（${tool||""}）　端末：${getUser()||"未設定"}`;
+/* ===== 記録: hidden form POST（写真含む） ===== */
+let postFrameInited=false;
+function ensurePostFrame_(){
+  if(postFrameInited) return;
+  const ifr=document.createElement("iframe");
+  ifr.name="postFrame";
+  ifr.style.display="none";
+  document.body.appendChild(ifr);
+  postFrameInited=true;
 }
-function showUser(){
-  app.innerHTML=`<div class="card"><h2>この端末の名前</h2>${MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")}</div>`;
+
+function formPost_(payload){
+  ensurePostFrame_();
+
+  const f=document.createElement("form");
+  f.method="POST";
+  f.action=GAS_URL;
+  f.target="postFrame";
+  f.style.display="none";
+
+  for(const k of Object.keys(payload)){
+    const inp=document.createElement("input");
+    inp.type="hidden";
+    inp.name=k;
+    inp.value=String(payload[k]);
+    f.appendChild(inp);
+  }
+
+  document.body.appendChild(f);
+  f.submit();
+  f.remove();
+
+  // レスポンスは読まない。送ったらOK扱い→statusで反映確認
+  return true;
+}
+
+async function postAction_(action, photoDataUrl=""){
+  const payload={
+    datetime:new Date().toISOString(),
+    site, tool, toolName,
+    action,
+    user:getUser()
+  };
+  if(photoDataUrl) payload.photoDataUrl = photoDataUrl;
+
+  formPost_(payload);
+
+  // 送信直後に即反映させるため少し待ってから status
+  await new Promise(r=>setTimeout(r,500));
+}
+
+/* ===== カメラ（返却は写真必須） ===== */
+let stream=null;
+
+function showUserSelect(){
+  app.innerHTML=`
+    <div class="card">
+      <h2>この端末の名前<span class="badge">最初の1回だけ</span></h2>
+      ${MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")}
+    </div>`;
 }
 window.pick=n=>{setUser(n);render();};
 
-function renderNormal(items){
-  const me=items.find(x=>x.tool===tool);
+function header(){
+  hdr.textContent = `現場：${site}　道具：${toolName}（${tool||"未指定"}）　端末：${getUser()||"未設定"}`;
+}
+
+function ui(statusItems){
+  const byTool = {};
+  for(const it of statusItems){ byTool[it.tool]=it; }
+  const me = byTool[tool];
+
+  const statusText = !tool ? "" : (
+    !me ? "持ち出し無し" :
+    me.status==="OUT" ? `${me.toolName} を持ち出し中` :
+    me.status==="PENDING" ? `${me.toolName} 返却確認待ち` :
+    "持ち出し無し"
+  );
+
+  const needConfirm = me && me.status==="PENDING";
+  const photoUrl = (me && me.photoUrl) ? me.photoUrl : "";
+
   app.innerHTML=`
-  <div class="card ${me&&me.status==='OUT'?'stateOut':me&&me.status==='PENDING'?'statePending':'stateIn'}">
-    <h2>状態</h2><div style="font-size:20px">${me?statusLabel(me.status):"持ち出し無し"}</div>
-  </div>
-  <div class="card">
-    <h2>${TOOL_NAME[tool]||""}</h2>
-    <button onclick="take()">持ち出し</button>
-  </div>
-  <div class="card"><h2>履歴一覧</h2>${renderList(items)}</div>`;
+    <div class="card ${needConfirm?'statePending': (me && me.status==='OUT'?'stateOut':'stateIn')}">
+      <h2>状態</h2>
+      <div style="font-size:20px">${statusText}</div>
+      ${needConfirm ? `<div style="opacity:.8;margin-top:8px">写真を確認してから「確認」を押す</div>` : ``}
+      ${photoUrl ? `<button class="small" onclick="openPhoto('${photoUrl.replace(/'/g,"%27")}')">写真を見る</button>` : ``}
+      ${needConfirm ? `<button onclick="confirmOk()">確認</button>` : ``}
+    </div>
+
+    <div class="card">
+      <h2>${toolName}</h2>
+      <button onclick="take()">持ち出し</button>
+      <button onclick="startReturn()">返却（写真必須）</button>
+
+      <div id="cam" class="card hidden" style="margin-top:12px">
+        <video id="v" autoplay playsinline></video>
+        <button onclick="shotAndSend()">撮影して返却</button>
+        <button class="small" onclick="cancelCam()">中止</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>現場の一覧</h2>
+      ${renderList(statusItems)}
+    </div>
+  `;
 }
+
 function renderList(items){
-  if(!items.length) return `<div class="item"><b>なし</b></div>`;
-  return `<div class="list">`+items.map(x=>`
-    <div class="item ${x.status==='OUT'?'stateOut':x.status==='PENDING'?'statePending':'stateIn'}">
-      <b>${x.toolName}（${x.tool}）</b>
-      <div class="meta">${statusLabel(x.status)} / ${x.by||""}</div>
-    </div>`).join("")+`</div>`;
+  const active = items.filter(x=>x.status==="OUT"||x.status==="PENDING");
+  if(active.length===0){
+    return `<div class="item"><b>持ち出し無し</b><div class="meta">持ち出し中／返却確認待ちはありません</div></div>`;
+  }
+  return `<div class="list">` + active.map(x=>{
+    const label = (x.status==="OUT") ? "持ち出し中" : "返却確認待ち";
+    const t = x.at ? new Date(x.at).toLocaleString() : "";
+    return `
+      <div class="item ${x.status==="OUT"?'stateOut':'statePending'}">
+        <b>${x.toolName}（${x.tool}）</b>
+        <div class="meta">${label} / ${x.by||""} / ${t}</div>
+        ${x.photoUrl ? `<button class="small" onclick="openPhoto('${x.photoUrl.replace(/'/g,"%27")}')">写真</button>` : ``}
+      </div>
+    `;
+  }).join("") + `</div>`;
 }
-async function refresh(){
-  try{ renderNormal(await getStatus()); }
-  catch{ toast("通信エラー"); renderNormal([]); }
-}
+
+window.openPhoto=(u)=>{ window.open(u, "_blank"); };
+
 window.take=async()=>{
-  toast("送信中","持ち出し");
-  try{ await post("持ち出し"); vibrate(80); toast("記録"); }
-  catch{ toast("通信エラー"); }
-  finally{ refresh(); }
+  if(!tool){ toast("エラー","toolが指定されていません"); return; }
+  try{
+    await postAction_("持ち出し");
+    vibrate(80);
+    toast("持ち出しを記録","");
+    await refresh();
+  }catch(e){
+    toast("通信エラー","記録できていません");
+  }
 };
+
+window.startReturn=async()=>{
+  if(!tool){ toast("エラー","toolが指定されていません"); return; }
+  try{
+    const cam=document.getElementById("cam");
+    cam.classList.remove("hidden");
+    const v=document.getElementById("v");
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    v.srcObject = stream;
+  }catch(e){
+    toast("カメラ起動できない","許可/HTTPS/設定を確認");
+  }
+};
+
+window.cancelCam=()=>{
+  try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(_){}
+  const cam=document.getElementById("cam");
+  if(cam) cam.classList.add("hidden");
+};
+
+async function captureJpegDataUrl_(){
+  const v=document.getElementById("v");
+  if(!v) throw new Error("video not found");
+  await new Promise(r=>setTimeout(r,150));
+
+  // 超低画質：縮小＋低品質
+  const srcW=v.videoWidth||1280, srcH=v.videoHeight||720;
+  const outW=640;
+  const outH=Math.round(outW * srcH / srcW);
+
+  const c=document.createElement("canvas");
+  c.width=outW; c.height=outH;
+  const ctx=c.getContext("2d");
+  ctx.drawImage(v,0,0,outW,outH);
+
+  return c.toDataURL("image/jpeg",0.35);
+}
+
+window.shotAndSend=async()=>{
+  try{
+    const dataUrl = await captureJpegDataUrl_();
+    cancelCam();
+    await postAction_("返却", dataUrl);
+    vibrate([60,60,60]);
+    toast("返却を記録","確認待ち");
+    await refresh();
+  }catch(e){
+    toast("通信エラー","記録できていません");
+  }
+};
+
+window.confirmOk=async()=>{
+  if(!tool){ toast("エラー","toolが指定されていません"); return; }
+  try{
+    await postAction_("確認");
+    vibrate(80);
+    toast("確認を記録","");
+    await refresh();
+  }catch(e){
+    toast("通信エラー","記録できていません");
+  }
+};
+
+async function refresh(){
+  try{
+    const items = await getStatus();
+    ui(items);
+  }catch(e){
+    ui([]);
+    toast("通信エラー","状態を取得できません");
+  }
+}
+
 function render(){
   header();
-  if(!getUser()){ showUser(); return; }
-  refresh(); setInterval(refresh,15000);
+  if(!getUser()){ showUserSelect(); return; }
+  refresh();
+  setInterval(refresh, 15000);
 }
 render();
 </script>
