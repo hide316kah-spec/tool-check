@@ -28,12 +28,18 @@ video{width:100%;border-radius:12px;border:1px solid #333;background:#000}
 <main id="app"></main>
 
 <script>
-/* ===== 設定 ===== */
-const GAS_URL="https://script.google.com/macros/s/【あなたのexec URL】/exec";
+/* ===== 設定（確定） ===== */
+const GAS_URL =
+"https://script.google.com/macros/s/AKfycbxVpcXoJFFmO_sqOi76kMrD6hgFBR4CdCD5hpI_4bTLD3VeVrP2qbxDiJ_RTrotzLsx/exec";
 
 const TOOL_NAME={
-  T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
-  T004:"誘導棒",D001:"その他（扉1）",D002:"その他（扉2）",D003:"その他（扉3）"
+  T001:"手歯止め",
+  T002:"デジタルゲージ",
+  T003:"検測用具",
+  T004:"誘導棒",
+  D001:"その他（扉1）",
+  D002:"その他（扉2）",
+  D003:"その他（扉3）"
 };
 const MEMBERS=["佐藤","山田","高橋"];
 
@@ -63,29 +69,32 @@ async function post(action, photoDataUrl){
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify(payload)
   });
-  if(!r.ok) throw new Error();
+  if(!r.ok) throw new Error("post failed");
   const js=await r.json();
-  if(js.result!=="ok") throw new Error();
+  if(js.result!=="ok") throw new Error("gas error");
 }
 
 async function getStatus(){
-  const r=await fetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`);
-  if(!r.ok) throw new Error();
+  const r=await fetch(
+    `${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`
+  );
+  if(!r.ok) throw new Error("status failed");
   const js=await r.json();
-  if(js.result!=="ok") throw new Error();
+  if(js.result!=="ok") throw new Error("status error");
   return js.items||[];
 }
 
-/* ===== カメラ ===== */
+/* ===== カメラ（超低画質） ===== */
 let stream=null;
 
 async function capture(){
   const v=document.getElementById("v");
   await new Promise(r=>setTimeout(r,150));
   const c=document.createElement("canvas");
-  c.width=v.videoWidth; c.height=v.videoHeight;
+  c.width=v.videoWidth||640;
+  c.height=v.videoHeight||480;
   c.getContext("2d").drawImage(v,0,0);
-  return c.toDataURL("image/jpeg",0.4); // 超低画質
+  return c.toDataURL("image/jpeg",0.35);
 }
 
 function header(){
@@ -99,17 +108,20 @@ function renderUserSelect(){
       ${MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")}
     </div>`;
 }
-window.pick=n=>{setUser(n);render();};
+window.pick=n=>{setUser(n);refresh();};
 
 function render(items){
   header();
-  if(!getUser()){renderUserSelect();return;}
+
+  if(!getUser()){
+    renderUserSelect();
+    return;
+  }
 
   const me=items.find(x=>x.tool===tool);
-  const state=me?me.status:"";
+  const state=me?me.status:"IN";
 
-  /* ===== 状態カード ===== */
-  let stateText="持ち出しなし";
+  let stateText="異常なし";
   let stateClass="stateIn";
   let stateExtra="";
 
@@ -125,26 +137,15 @@ function render(items){
       <button onclick="confirmOk()">確認</button>`;
   }
 
-  /* ===== 履歴一覧 ===== */
-  let historyHtml="";
-  if(items.length===0){
-    historyHtml=`<div class="item"><b>持ち出しなし</b></div>`;
-  }else{
-    historyHtml=items.map(x=>{
-      let lines=[];
-      if(x.status==="OUT"){
-        lines.push(`持ち出し中 / ${x.by} / ${new Date(x.at).toLocaleString()}`);
-      }
-      if(x.status==="PENDING"){
-        lines.push(`返却済み（確認待ち） / ${x.by} / ${new Date(x.at).toLocaleString()}`);
-      }
-      return `
+  const historyHtml = items.length===0
+    ? `<div class="item"><b>履歴なし</b></div>`
+    : items.map(x=>`
         <div class="item">
           <b>${x.toolName}（${x.tool}）</b>
-          <div class="meta">${lines.join("<br>")}</div>
-        </div>`;
-    }).join("");
-  }
+          <div class="meta">
+            ${x.status} / ${x.by||""} / ${x.at?new Date(x.at).toLocaleString():""}
+          </div>
+        </div>`).join("");
 
   app.innerHTML=`
     <div class="card ${stateClass}">
@@ -207,10 +208,16 @@ async function refresh(){
   try{
     const items=await getStatus();
     render(items);
-  }catch{
-    render([]);
+  }catch(e){
+    header();
+    app.innerHTML=`
+      <div class="card">
+        <h2>通信失敗</h2>
+        <div>状態を取得できません</div>
+      </div>`;
   }
 }
+
 refresh();
 setInterval(refresh,15000);
 </script>
