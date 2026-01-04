@@ -9,217 +9,110 @@ body{margin:0;background:#111;color:#fff;font-family:-apple-system}
 header{padding:10px 12px;border-bottom:1px solid #333;color:#bbb;font-size:14px}
 main{padding:14px;max-width:560px;margin:auto}
 .card{border:1px solid #333;border-radius:12px;padding:14px;margin-bottom:12px}
-h2{margin:0 0 8px 0;font-size:18px}
 button{width:100%;padding:14px;margin-top:10px;font-size:18px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333}
 .small{font-size:14px;padding:10px}
-.list .item{border:1px solid #333;border-radius:12px;padding:12px;margin-top:10px}
-.item b{display:block;font-size:16px}
-.item .meta{opacity:.7;font-size:13px;margin-top:6px}
-.stateOut{border-color:#a33}
-.statePending{border-color:#aa3}
-.stateIn{border-color:#333}
+.toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000;border:1px solid #333;padding:18px 22px;border-radius:12px;z-index:9999}
 .hidden{display:none}
-video{width:100%;border-radius:12px;border:1px solid #333;background:#000}
+video{width:100%;border-radius:12px;border:1px solid #333}
 </style>
 </head>
-
 <body>
 <header id="hdr"></header>
 <main id="app"></main>
 
 <script>
-/* ===== 設定（確定） ===== */
-const GAS_URL =
-"https://script.google.com/macros/s/AKfycbxVpcXoJFFmO_sqOi76kMrD6hgFBR4CdCD5hpI_4bTLD3VeVrP2qbxDiJ_RTrotzLsx/exec";
+const GAS_URL="https://script.google.com/macros/s/AKfycbxVpcXoJFFmO_sqOi76kMrD6hgFBR4CdCD5hpI_4bTLD3VeVrP2qbxDiJ_RTrotzLsx/exec";
 
-const TOOL_NAME={
-  T001:"手歯止め",
-  T002:"デジタルゲージ",
-  T003:"検測用具",
-  T004:"誘導棒",
-  D001:"その他（扉1）",
-  D002:"その他（扉2）",
-  D003:"その他（扉3）"
-};
-const MEMBERS=["佐藤","山田","高橋"];
-
-/* ===== URL ===== */
 const p=new URLSearchParams(location.search);
-const site=(p.get("site")||"").trim();
-const tool=(p.get("tool")||"").trim();
-const toolName=TOOL_NAME[tool]||tool;
+const site=p.get("site")||"";
+const tool=p.get("tool")||"";
 
-/* ===== 共通 ===== */
 const app=document.getElementById("app");
 const hdr=document.getElementById("hdr");
 
-function getUser(){return localStorage.getItem("user")||"";}
-function setUser(n){localStorage.setItem("user",n);}
+function toast(msg){
+  const d=document.createElement("div");
+  d.className="toast";
+  d.textContent=msg;
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),2000);
+}
 
-async function post(action, photoDataUrl){
-  const payload={
-    datetime:new Date().toISOString(),
-    site, tool, toolName,
-    action, user:getUser()
-  };
-  if(photoDataUrl) payload.photoDataUrl=photoDataUrl;
+async function safeFetch(url,opt){
+  try{
+    const r=await fetch(url,opt);
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    return await r.json();
+  }catch(e){
+    console.error(e);
+    toast("通信失敗");
+    return null;
+  }
+}
 
-  const r=await fetch(GAS_URL,{
+async function load(){
+  hdr.textContent=`現場：${site}　道具：${tool}`;
+  app.innerHTML=`<div class="card">状態取得中…</div>`;
+
+  const js=await safeFetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}`);
+  if(!js){ app.innerHTML=`<div class="card">取得失敗</div>`; return; }
+
+  const me=js.items.find(x=>x.tool===tool);
+
+  app.innerHTML=`
+    <div class="card">
+      <b>状態</b><br>
+      ${me?me.status:"異常なし"}
+    </div>
+
+    <div class="card">
+      <button onclick="take()">持ち出し</button>
+      <button onclick="ret()">返却（写真必須）</button>
+    </div>
+  `;
+}
+
+async function take(){
+  toast("持ち出し送信");
+  await safeFetch(GAS_URL,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(payload)
+    body:JSON.stringify({site,tool,action:"持ち出し",datetime:new Date().toISOString()})
   });
-  if(!r.ok) throw new Error("post failed");
-  const js=await r.json();
-  if(js.result!=="ok") throw new Error("gas error");
+  load();
 }
 
-async function getStatus(){
-  const r=await fetch(
-    `${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`
-  );
-  if(!r.ok) throw new Error("status failed");
-  const js=await r.json();
-  if(js.result!=="ok") throw new Error("status error");
-  return js.items||[];
-}
-
-/* ===== カメラ（超低画質） ===== */
-let stream=null;
-
-async function capture(){
-  const v=document.getElementById("v");
-  await new Promise(r=>setTimeout(r,150));
-  const c=document.createElement("canvas");
-  c.width=v.videoWidth||640;
-  c.height=v.videoHeight||480;
-  c.getContext("2d").drawImage(v,0,0);
-  return c.toDataURL("image/jpeg",0.35);
-}
-
-function header(){
-  hdr.textContent=`現場：${site}　道具：${toolName}（${tool}）　端末：${getUser()||"未設定"}`;
-}
-
-function renderUserSelect(){
-  app.innerHTML=`
-    <div class="card">
-      <h2>端末の使用者</h2>
-      ${MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")}
-    </div>`;
-}
-window.pick=n=>{setUser(n);refresh();};
-
-function render(items){
-  header();
-
-  if(!getUser()){
-    renderUserSelect();
+async function ret(){
+  let s;
+  try{
+    s=await navigator.mediaDevices.getUserMedia({video:true});
+  }catch{
+    toast("カメラ不可");
     return;
   }
+  const v=document.createElement("video");
+  v.srcObject=s; v.play();
+  setTimeout(async()=>{
+    const c=document.createElement("canvas");
+    c.width=320; c.height=240;
+    c.getContext("2d").drawImage(v,0,0,320,240);
+    s.getTracks().forEach(t=>t.stop());
 
-  const me=items.find(x=>x.tool===tool);
-  const state=me?me.status:"IN";
-
-  let stateText="異常なし";
-  let stateClass="stateIn";
-  let stateExtra="";
-
-  if(state==="OUT"){
-    stateText=`${toolName} を持ち出し中`;
-    stateClass="stateOut";
-  }
-  if(state==="PENDING"){
-    stateText=`${toolName} 返却確認待ち`;
-    stateClass="statePending";
-    stateExtra=`
-      <button class="small" onclick="openPhoto('${me.photoUrl}')">写真を見る</button>
-      <button onclick="confirmOk()">確認</button>`;
-  }
-
-  const historyHtml = items.length===0
-    ? `<div class="item"><b>履歴なし</b></div>`
-    : items.map(x=>`
-        <div class="item">
-          <b>${x.toolName}（${x.tool}）</b>
-          <div class="meta">
-            ${x.status} / ${x.by||""} / ${x.at?new Date(x.at).toLocaleString():""}
-          </div>
-        </div>`).join("");
-
-  app.innerHTML=`
-    <div class="card ${stateClass}">
-      <h2>状態</h2>
-      <div style="font-size:20px">${stateText}</div>
-      ${stateExtra}
-    </div>
-
-    <div class="card">
-      <h2>${toolName}</h2>
-      <button onclick="take()">持ち出し</button>
-      <button onclick="startReturn()">返却（写真必須）</button>
-
-      <div id="cam" class="card hidden">
-        <video id="v" autoplay playsinline></video>
-        <button onclick="shotAndSend()">撮影して返却</button>
-        <button class="small" onclick="cancelCam()">中止</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>履歴一覧</h2>
-      ${historyHtml}
-    </div>`;
+    toast("返却送信");
+    await safeFetch(GAS_URL,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        site,tool,action:"返却",
+        datetime:new Date().toISOString(),
+        photoDataUrl:c.toDataURL("image/jpeg",0.5)
+      })
+    });
+    load();
+  },800);
 }
 
-window.openPhoto=u=>window.open(u,"_blank");
-
-window.take=async()=>{
-  await post("持ち出し");
-  refresh();
-};
-
-window.startReturn=async()=>{
-  const cam=document.getElementById("cam");
-  cam.classList.remove("hidden");
-  const v=document.getElementById("v");
-  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-  v.srcObject=stream;
-};
-
-window.cancelCam=()=>{
-  if(stream) stream.getTracks().forEach(t=>t.stop());
-  document.getElementById("cam").classList.add("hidden");
-};
-
-window.shotAndSend=async()=>{
-  const data=await capture();
-  cancelCam();
-  await post("返却",data);
-  refresh();
-};
-
-window.confirmOk=async()=>{
-  await post("確認");
-  refresh();
-};
-
-async function refresh(){
-  try{
-    const items=await getStatus();
-    render(items);
-  }catch(e){
-    header();
-    app.innerHTML=`
-      <div class="card">
-        <h2>通信失敗</h2>
-        <div>状態を取得できません</div>
-      </div>`;
-  }
-}
-
-refresh();
-setInterval(refresh,15000);
+load();
 </script>
 </body>
 </html>
