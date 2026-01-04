@@ -10,28 +10,26 @@ header{padding:10px 12px;border-bottom:1px solid #333;color:#bbb;font-size:14px}
 main{padding:14px;max-width:560px;margin:auto}
 .card{border:1px solid #333;border-radius:12px;padding:14px;margin-bottom:12px}
 h2{margin:0 0 8px 0;font-size:18px}
-.badge{display:inline-block;border:1px solid #333;border-radius:999px;padding:2px 8px;font-size:12px;color:#bbb;margin-left:6px}
-.row{display:flex;gap:10px;flex-wrap:wrap}
 button{width:100%;padding:14px;margin-top:10px;font-size:18px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333}
 .small{font-size:14px;padding:10px}
-.toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000;border:1px solid #333;padding:18px 22px;border-radius:12px;text-align:center;z-index:9999}
 .list .item{border:1px solid #333;border-radius:12px;padding:12px;margin-top:10px}
 .item b{display:block;font-size:16px}
 .item .meta{opacity:.7;font-size:13px;margin-top:6px}
-video{width:100%;border-radius:12px;border:1px solid #333;background:#000}
-.hidden{display:none}
 .stateOut{border-color:#a33}
 .statePending{border-color:#aa3}
 .stateIn{border-color:#333}
+.hidden{display:none}
+video{width:100%;border-radius:12px;border:1px solid #333;background:#000}
 </style>
 </head>
+
 <body>
 <header id="hdr"></header>
 <main id="app"></main>
 
 <script>
 /* ===== 設定 ===== */
-const GAS_URL="https://script.google.com/macros/s/AKfycbxVpcXoJFFmO_sqOi76kMrD6hgFBR4CdCD5hpI_4bTLD3VeVrP2qbxDiJ_RTrotzLsx/exec";
+const GAS_URL="https://script.google.com/macros/s/【あなたのexec URL】/exec";
 
 const TOOL_NAME={
   T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
@@ -41,348 +39,180 @@ const MEMBERS=["佐藤","山田","高橋"];
 
 /* ===== URL ===== */
 const p=new URLSearchParams(location.search);
-const site=(p.get("site")||"").trim() || "A";
-const tool=(p.get("tool")||"").trim(); // 無いなら確認者用
-const toolName=tool ? (TOOL_NAME[tool]||"不明") : "";
+const site=(p.get("site")||"").trim();
+const tool=(p.get("tool")||"").trim();
+const toolName=TOOL_NAME[tool]||tool;
 
 /* ===== 共通 ===== */
 const app=document.getElementById("app");
 const hdr=document.getElementById("hdr");
 
-function toast(a,b="",ms=2200){
-  const d=document.createElement("div");
-  d.className="toast";
-  d.innerHTML=`<div style="font-size:20px">${a}</div><div style="opacity:.7;font-size:14px;margin-top:6px">${b}</div>`;
-  document.body.appendChild(d);
-  setTimeout(()=>d.remove(),ms);
-}
-
-function vibrate(ms){
-  try{ if (navigator.vibrate) navigator.vibrate(ms); }catch(_){}
-}
-
 function getUser(){return localStorage.getItem("user")||"";}
 function setUser(n){localStorage.setItem("user",n);}
 
-/* ===== 連打ガード/体感改善 ===== */
-let busy=false;
-function setBusy(on, msg){
-  busy=!!on;
-  if(on) toast(msg || "送信中…","",1200);
-}
-
-/* ===== 追加：fetch ハング対策（AbortController使わない） ===== */
-function fetchJsonWithTimeout_(url, ms){
-  return Promise.race([
-    fetch(url, {method:"GET"}).then(r=>{
-      if(!r.ok) throw new Error("http "+r.status);
-      return r.json();
-    }),
-    new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), ms))
-  ]);
-}
-function fetchPostJsonWithTimeout_(url, bodyText, ms){
-  return Promise.race([
-    fetch(url,{method:"POST", body: bodyText}).then(r=>{
-      if(!r.ok) throw new Error("http "+r.status);
-      return r.json().catch(()=>({}));
-    }),
-    new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), ms))
-  ]);
-}
-
-/* ===== 通信 ===== */
-async function post(action, photoDataUrl, overrideTool){
+async function post(action, photoDataUrl){
   const payload={
     datetime:new Date().toISOString(),
-    site,
-    tool: overrideTool || tool,
-    toolName: (overrideTool ? (TOOL_NAME[overrideTool]||"不明") : toolName),
-    action,
-    user:getUser()
+    site, tool, toolName,
+    action, user:getUser()
   };
-  if(photoDataUrl) payload.photoDataUrl = photoDataUrl;
+  if(photoDataUrl) payload.photoDataUrl=photoDataUrl;
 
-  // CORS回避：Content-Type 付けない（プリフライト回避）
-  const js = await fetchPostJsonWithTimeout_(GAS_URL, JSON.stringify(payload), 7000);
-  if(js && js.result && js.result!=="ok") throw new Error(js.message || "gas error");
+  const r=await fetch(GAS_URL,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(payload)
+  });
+  if(!r.ok) throw new Error();
+  const js=await r.json();
+  if(js.result!=="ok") throw new Error();
 }
 
 async function getStatus(){
-  const url = `${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`;
-  const js = await fetchJsonWithTimeout_(url, 6000);
-  if(!js || js.result!=="ok") throw new Error("status error");
-  return js.items || [];
+  const r=await fetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`);
+  if(!r.ok) throw new Error();
+  const js=await r.json();
+  if(js.result!=="ok") throw new Error();
+  return js.items||[];
 }
 
-/* ===== カメラ（返却は必須） ===== */
+/* ===== カメラ ===== */
 let stream=null;
 
-/* ===== 確認者用/作業者用 共通：端末名 ===== */
-function showUserSelect(titleText){
+async function capture(){
+  const v=document.getElementById("v");
+  await new Promise(r=>setTimeout(r,150));
+  const c=document.createElement("canvas");
+  c.width=v.videoWidth; c.height=v.videoHeight;
+  c.getContext("2d").drawImage(v,0,0);
+  return c.toDataURL("image/jpeg",0.4); // 超低画質
+}
+
+function header(){
+  hdr.textContent=`現場：${site}　道具：${toolName}（${tool}）　端末：${getUser()||"未設定"}`;
+}
+
+function renderUserSelect(){
   app.innerHTML=`
     <div class="card">
-      <h2>${titleText}<span class="badge">最初の1回だけ</span></h2>
+      <h2>端末の使用者</h2>
       ${MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")}
     </div>`;
 }
 window.pick=n=>{setUser(n);render();};
 
-function header(){
-  if(tool){
-    hdr.textContent = `現場：${site}　道具：${toolName}（${tool||"未指定"}）　端末：${getUser()||"未設定"}`;
-  }else{
-    hdr.textContent = `現場：${site}　確認者　端末：${getUser()||"未設定"}`;
+function render(items){
+  header();
+  if(!getUser()){renderUserSelect();return;}
+
+  const me=items.find(x=>x.tool===tool);
+  const state=me?me.status:"";
+
+  /* ===== 状態カード ===== */
+  let stateText="持ち出しなし";
+  let stateClass="stateIn";
+  let stateExtra="";
+
+  if(state==="OUT"){
+    stateText=`${toolName} を持ち出し中`;
+    stateClass="stateOut";
   }
-}
+  if(state==="PENDING"){
+    stateText=`${toolName} 返却確認待ち`;
+    stateClass="statePending";
+    stateExtra=`
+      <button class="small" onclick="openPhoto('${me.photoUrl}')">写真を見る</button>
+      <button onclick="confirmOk()">確認</button>`;
+  }
 
-/* ===== ローカル即時反映（体感改善） ===== */
-let lastItemsCache=[];
-function upsertLocal_(rec){
-  const idx = lastItemsCache.findIndex(x=>x.tool===rec.tool);
-  const at = rec.at || new Date().toISOString();
-  const merged = {
-    site: rec.site || site,
-    tool: rec.tool,
-    toolName: rec.toolName || (TOOL_NAME[rec.tool]||rec.tool),
-    status: rec.status,
-    by: rec.by || getUser(),
-    at,
-    photoUrl: rec.photoUrl || ""
-  };
-  if(idx>=0) lastItemsCache[idx]=merged;
-  else lastItemsCache.push(merged);
-}
-
-/* ===== UI：作業者用 ===== */
-function uiWorker(statusItems){
-  lastItemsCache = Array.isArray(statusItems) ? statusItems.slice() : [];
-
-  const byTool = {};
-  for(const it of statusItems){ byTool[it.tool] = it; }
-  const me = byTool[tool];
-
-  const statusText = (
-    !me ? "異常なし" :
-    me.status==="OUT" ? `${me.toolName} を持ち出し中` :
-    me.status==="PENDING" ? `${me.toolName} 返却確認待ち` :
-    "異常なし"
-  );
-
-  const needConfirm = me && me.status==="PENDING";
-  const photoUrl = (me && me.photoUrl) ? me.photoUrl : "";
+  /* ===== 履歴一覧 ===== */
+  let historyHtml="";
+  if(items.length===0){
+    historyHtml=`<div class="item"><b>持ち出しなし</b></div>`;
+  }else{
+    historyHtml=items.map(x=>{
+      let lines=[];
+      if(x.status==="OUT"){
+        lines.push(`持ち出し中 / ${x.by} / ${new Date(x.at).toLocaleString()}`);
+      }
+      if(x.status==="PENDING"){
+        lines.push(`返却済み（確認待ち） / ${x.by} / ${new Date(x.at).toLocaleString()}`);
+      }
+      return `
+        <div class="item">
+          <b>${x.toolName}（${x.tool}）</b>
+          <div class="meta">${lines.join("<br>")}</div>
+        </div>`;
+    }).join("");
+  }
 
   app.innerHTML=`
-    <div class="card ${needConfirm?'statePending': (me && me.status==='OUT'?'stateOut':'stateIn')}">
+    <div class="card ${stateClass}">
       <h2>状態</h2>
-      <div style="font-size:20px">${statusText}</div>
-      ${needConfirm ? `<div style="opacity:.8;margin-top:8px">写真を確認してから「確認」を押す</div>` : ``}
-      ${photoUrl ? `<button class="small" onclick="openPhoto('${photoUrl.replace(/'/g,"%27")}')">写真を見る</button>` : ``}
-      ${needConfirm ? `<button onclick="confirmOk()">確認</button>` : ``}
+      <div style="font-size:20px">${stateText}</div>
+      ${stateExtra}
     </div>
 
     <div class="card">
       <h2>${toolName}</h2>
-      <button onclick="take()" ${busy?'disabled':''}>持ち出し</button>
-      <button onclick="startReturn()" ${busy?'disabled':''}>返却（写真必須）</button>
+      <button onclick="take()">持ち出し</button>
+      <button onclick="startReturn()">返却（写真必須）</button>
 
-      <div id="cam" class="card hidden" style="margin-top:12px">
+      <div id="cam" class="card hidden">
         <video id="v" autoplay playsinline></video>
-        <button onclick="shotAndSend()" ${busy?'disabled':''}>撮影して返却</button>
+        <button onclick="shotAndSend()">撮影して返却</button>
         <button class="small" onclick="cancelCam()">中止</button>
       </div>
     </div>
 
     <div class="card">
-      <h2>現場の一覧</h2>
-      ${renderList(statusItems, true)}
-    </div>
-  `;
+      <h2>履歴一覧</h2>
+      ${historyHtml}
+    </div>`;
 }
 
-/* ===== UI：確認者用（tool無しで現場全体を見る） ===== */
-function uiChecker(statusItems){
-  lastItemsCache = Array.isArray(statusItems) ? statusItems.slice() : [];
+window.openPhoto=u=>window.open(u,"_blank");
 
-  app.innerHTML=`
-    <div class="card">
-      <h2>現場の一覧（確認者）</h2>
-      ${renderList(statusItems, false)}
-    </div>
-  `;
-}
-
-/* ===== 一覧描画：confirmAllowed=trueなら確認ボタンを出す ===== */
-function renderList(items, confirmAllowed){
-  const active = items.filter(x=>x.status==="OUT"||x.status==="PENDING");
-  if(active.length===0){
-    return `<div class="item"><b>異常なし</b><div class="meta">持ち出し中／返却確認待ちはありません</div></div>`;
-  }
-  return `<div class="list">` + active.map(x=>{
-    const label = (x.status==="OUT") ? "持ち出し中" : "返却確認待ち";
-    const t = x.at ? new Date(x.at).toLocaleString() : "";
-    const canConfirm = confirmAllowed && x.status==="PENDING";
-    return `
-      <div class="item ${x.status==="OUT"?'stateOut':'statePending'}">
-        <b>${x.toolName}（${x.tool}）</b>
-        <div class="meta">${label} / ${x.by||""} / ${t}</div>
-        ${x.photoUrl ? `<button class="small" onclick="openPhoto('${x.photoUrl.replace(/'/g,"%27")}')">写真</button>` : ``}
-        ${canConfirm ? `<button class="small" onclick="confirmByTool('${x.tool.replace(/'/g,"%27")}')">この道具を確認</button>` : ``}
-      </div>
-    `;
-  }).join("") + `</div>`;
-}
-
-window.openPhoto=(u)=>{ window.open(u, "_blank"); };
-
-/* ===== 作業者操作 ===== */
 window.take=async()=>{
-  if(busy) return;
-  if(!tool){ toast("エラー","toolが指定されていません"); return; }
-  setBusy(true,"送信中…");
-  try{
-    await post("持ち出し");
-    vibrate(80);
-    upsertLocal_({tool, toolName, status:"OUT", by:getUser(), at:new Date().toISOString()});
-    uiWorker(lastItemsCache);
-    toast("持ち出しを記録","");
-    await refresh();
-  }catch(e){
-    toast("通信エラー","記録できていません");
-  }finally{ setBusy(false); }
+  await post("持ち出し");
+  refresh();
 };
 
 window.startReturn=async()=>{
-  if(busy) return;
-  if(!tool){ toast("エラー","toolが指定されていません"); return; }
-  try{
-    const cam=document.getElementById("cam");
-    cam.classList.remove("hidden");
-    const v=document.getElementById("v");
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-    v.srcObject = stream;
-  }catch(e){
-    toast("カメラ起動できない","許可/HTTPS/設定を確認");
-  }
+  const cam=document.getElementById("cam");
+  cam.classList.remove("hidden");
+  const v=document.getElementById("v");
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+  v.srcObject=stream;
 };
 
 window.cancelCam=()=>{
-  try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(_){}
-  stream=null;
-  const cam=document.getElementById("cam");
-  if(cam) cam.classList.add("hidden");
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  document.getElementById("cam").classList.add("hidden");
 };
 
-/* 超低画質：長辺640 / 品質0.4 */
-async function captureJpegDataUrl_(){
-  const v=document.getElementById("v");
-  if(!v) throw new Error("video not found");
-  await new Promise(r=>setTimeout(r,150));
-
-  const srcW=v.videoWidth||1280, srcH=v.videoHeight||720;
-  const MAX=640;
-
-  let w=srcW, h=srcH;
-  if (w > h && w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
-  else if (h >= w && h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
-
-  const c=document.createElement("canvas");
-  c.width=w; c.height=h;
-  const ctx=c.getContext("2d");
-  ctx.drawImage(v,0,0,w,h);
-
-  return c.toDataURL("image/jpeg",0.4);
-}
-
 window.shotAndSend=async()=>{
-  if(busy) return;
-  try{
-    setBusy(true,"送信中…");
-    const dataUrl = await captureJpegDataUrl_();
-    cancelCam();
-
-    await post("返却", dataUrl);
-    vibrate([60,60,60]);
-
-    upsertLocal_({tool, toolName, status:"PENDING", by:getUser(), at:new Date().toISOString()});
-    uiWorker(lastItemsCache);
-
-    toast("返却を記録","確認待ち");
-    await refresh();
-  }catch(e){
-    toast("通信エラー","記録できていません");
-  }finally{ setBusy(false); }
+  const data=await capture();
+  cancelCam();
+  await post("返却",data);
+  refresh();
 };
 
 window.confirmOk=async()=>{
-  if(busy) return;
-  if(!tool){ toast("エラー","toolが指定されていません"); return; }
-  setBusy(true,"送信中…");
-  try{
-    await post("確認");
-    vibrate(80);
-
-    upsertLocal_({tool, toolName, status:"IN", by:getUser(), at:new Date().toISOString()});
-    uiWorker(lastItemsCache);
-
-    toast("確認を記録","");
-    await refresh();
-  }catch(e){
-    toast("通信エラー","記録できていません");
-  }finally{ setBusy(false); }
-};
-
-/* ===== 確認者：一覧からtool指定で確認 ===== */
-window.confirmByTool=async(t)=>{
-  if(busy) return;
-  setBusy(true,"送信中…");
-  try{
-    await post("確認", null, t);
-    vibrate(80);
-
-    // 体感：その場でIN化
-    upsertLocal_({tool:t, toolName:(TOOL_NAME[t]||t), status:"IN", by:getUser(), at:new Date().toISOString()});
-    uiChecker(lastItemsCache);
-
-    toast("確認を記録","");
-    await refresh();
-  }catch(e){
-    toast("通信エラー","記録できていません");
-  }finally{ setBusy(false); }
+  await post("確認");
+  refresh();
 };
 
 async function refresh(){
   try{
-    const items = await getStatus();
-    if(tool) uiWorker(items);
-    else uiChecker(items);
-  }catch(e){
-    // 取得失敗でも“固まらせない”：キャッシュがあればそれを出す
-    if(lastItemsCache.length){
-      if(tool) uiWorker(lastItemsCache);
-      else uiChecker(lastItemsCache);
-    }else{
-      // 初回も落ちる時は、最低限の画面を出す
-      if(tool) uiWorker([]);
-      else uiChecker([]);
-    }
-    toast("通信エラー","状態を取得できません");
+    const items=await getStatus();
+    render(items);
+  }catch{
+    render([]);
   }
 }
-
-function render(){
-  header();
-
-  // 端末名は「作業者」「確認者」どっちも必要（名前を消さないため）
-  if(!getUser()){
-    showUserSelect(tool ? "この端末の名前（作業者）" : "この端末の名前（確認者）");
-    return;
-  }
-
-  refresh();
-  setInterval(()=>{ if(!busy) refresh(); }, 15000);
-}
-render();
+refresh();
+setInterval(refresh,15000);
 </script>
 </body>
 </html>
