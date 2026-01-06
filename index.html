@@ -1,3 +1,14 @@
+// ===== ユーザー名（localStorage保持）=====
+let CURRENT_USER = localStorage.getItem("toolcheck_user");
+
+if (!CURRENT_USER) {
+  CURRENT_USER = prompt("名前を入力してください");
+  if (CURRENT_USER) {
+    localStorage.setItem("toolcheck_user", CURRENT_USER);
+  } else {
+    CURRENT_USER = "未入力";
+  }
+}
 <!doctype html>
 <html lang="ja">
 <head>
