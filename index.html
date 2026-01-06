@@ -23,6 +23,7 @@ video{width:100%;border-radius:12px;border:1px solid #333;background:#000}
 .stateOut{border-color:#a33}
 .statePending{border-color:#aa3}
 .stateIn{border-color:#333}
+input{width:100%;box-sizing:border-box;padding:14px;margin-top:10px;font-size:18px;border-radius:12px;background:#0f0f0f;color:#fff;border:1px solid #333}
 </style>
 </head>
 <body>
@@ -31,13 +32,12 @@ video{width:100%;border-radius:12px;border:1px solid #333;background:#000}
 
 <script>
 /* ===== 設定 ===== */
-const GAS_URL="https://script.google.com/macros/s/AKfycbzgupJn0DPxP6AY-Ocr-Nw3Pt9cSbpRIr3ZMZxYH3R1z9-ydLUhepZwU51WRQB5bLG_Lw/exec";
+const GAS_URL="https://script.google.com/macros/s/AKfycbxTbno_ylDcvbBfvSSvKbRqzpCTEoMBuIOy9FsxyAdYxGYt8vU87H5ddNMcZLGFk3oe5Q/exec";
 
 const TOOL_NAME={
   T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
   T004:"誘導棒",D001:"その他（扉1）",D002:"その他（扉2）",D003:"その他（扉3）"
 };
-const MEMBERS=["佐藤","山田","高橋"];
 
 /* ===== URL ===== */
 const p=new URLSearchParams(location.search);
@@ -56,117 +56,81 @@ function toast(a,b="",ms=2200){
   document.body.appendChild(d);
   setTimeout(()=>d.remove(),ms);
 }
+
 function vibrate(ms){
   try{ if (navigator.vibrate) navigator.vibrate(ms); }catch(_){}
 }
-function getUser(){return localStorage.getItem("user")||"";}
-function setUser(n){localStorage.setItem("user",n);}
 
-/* ===== status: JSONP ===== */
-function jsonp_(url, timeoutMs=8000){
-  return new Promise((resolve,reject)=>{
-    const cb="cb_"+Math.random().toString(36).slice(2);
-    const s=document.createElement("script");
-    const t=setTimeout(()=>{ cleanup(); reject(new Error("timeout")); }, timeoutMs);
+function getUser(){return (localStorage.getItem("user")||"").trim();}
+function setUser(n){localStorage.setItem("user",(n||"").trim());}
 
-    function cleanup(){
-      clearTimeout(t);
-      try{ delete window[cb]; }catch(_){ window[cb]=undefined; }
-      if (s.parentNode) s.parentNode.removeChild(s);
-    }
-
-    window[cb]=(data)=>{ cleanup(); resolve(data); };
-    s.onerror=()=>{ cleanup(); reject(new Error("load error")); };
-
-    s.src = url + (url.includes("?") ? "&" : "?") + "callback=" + encodeURIComponent(cb) + "&t=" + Date.now();
-    document.body.appendChild(s);
-  });
-}
-
-async function getStatus(){
-  const url = `${GAS_URL}?mode=status&site=${encodeURIComponent(site)}`;
-  const js = await jsonp_(url);
-  if(js.result!=="ok") throw new Error("status error");
-  return js.items || [];
-}
-
-/* ===== 記録: hidden form POST（写真含む） ===== */
-let postFrameInited=false;
-function ensurePostFrame_(){
-  if(postFrameInited) return;
-  const ifr=document.createElement("iframe");
-  ifr.name="postFrame";
-  ifr.style.display="none";
-  document.body.appendChild(ifr);
-  postFrameInited=true;
-}
-
-function formPost_(payload){
-  ensurePostFrame_();
-
-  const f=document.createElement("form");
-  f.method="POST";
-  f.action=GAS_URL;
-  f.target="postFrame";
-  f.style.display="none";
-
-  for(const k of Object.keys(payload)){
-    const inp=document.createElement("input");
-    inp.type="hidden";
-    inp.name=k;
-    inp.value=String(payload[k]);
-    f.appendChild(inp);
-  }
-
-  document.body.appendChild(f);
-  f.submit();
-  f.remove();
-
-  // レスポンスは読まない。送ったらOK扱い→statusで反映確認
-  return true;
-}
-
-async function postAction_(action, photoDataUrl=""){
+async function post(action, photoDataUrl){
   const payload={
     datetime:new Date().toISOString(),
     site, tool, toolName,
-    action,
-    user:getUser()
+    action, user:getUser()
   };
   if(photoDataUrl) payload.photoDataUrl = photoDataUrl;
 
-  formPost_(payload);
+  const r = await fetch(GAS_URL,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(payload)
+  });
+  if(!r.ok) throw new Error("http "+r.status);
+  const js = await r.json().catch(()=>({}));
+  if(js.result!=="ok") throw new Error(js.message || "gas error");
+}
 
-  // 送信直後に即反映させるため少し待ってから status
-  await new Promise(r=>setTimeout(r,500));
+async function getStatus(){
+  const url = `${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`;
+  const r = await fetch(url, {method:"GET"});
+  if(!r.ok) throw new Error("http "+r.status);
+  const js = await r.json();
+  if(js.result!=="ok") throw new Error("status error");
+  return js.items || [];
 }
 
 /* ===== カメラ（返却は写真必須） ===== */
 let stream=null;
 
-function showUserSelect(){
-  app.innerHTML=`
-    <div class="card">
-      <h2>この端末の名前<span class="badge">最初の1回だけ</span></h2>
-      ${MEMBERS.map(n=>`<button onclick="pick('${n}')">${n}</button>`).join("")}
-    </div>`;
-}
-window.pick=n=>{setUser(n);render();};
-
 function header(){
   hdr.textContent = `現場：${site}　道具：${toolName}（${tool||"未指定"}）　端末：${getUser()||"未設定"}`;
 }
 
+/* ===== 名前入力UI（追加・最小） ===== */
+function showNameInput(){
+  app.innerHTML=`
+    <div class="card">
+      <h2>この端末の名前<span class="badge">最初の1回だけ</span></h2>
+      <div style="opacity:.75;font-size:13px;margin-top:6px">例：佐藤 / 山田 / 高橋 / フルネームでも可</div>
+      <input id="name" placeholder="名前を入力" autocomplete="name" autocapitalize="off" spellcheck="false">
+      <button onclick="saveName()">保存</button>
+    </div>
+  `;
+  const inp=document.getElementById("name");
+  setTimeout(()=>{ try{inp.focus();}catch(_){ } },50);
+}
+window.saveName=()=>{
+  const v=(document.getElementById("name")?.value||"").trim();
+  if(!v){ toast("エラー","名前を入力"); return; }
+  setUser(v);
+  render();
+};
+
+/* ===== 画面 ===== */
 function ui(statusItems){
   const byTool = {};
-  for(const it of statusItems){ byTool[it.tool]=it; }
+  for(const it of statusItems){
+    byTool[it.tool] = it;
+  }
   const me = byTool[tool];
 
   const statusText = !tool ? "" : (
-    !me ? "持ち出し無し" :
+    !me ? "持ち出しなし" :
     me.status==="OUT" ? `${me.toolName} を持ち出し中` :
     me.status==="PENDING" ? `${me.toolName} 返却確認待ち` :
-    "持ち出し無し"
+    "持ち出しなし"
   );
 
   const needConfirm = me && me.status==="PENDING";
@@ -194,16 +158,17 @@ function ui(statusItems){
     </div>
 
     <div class="card">
-      <h2>現場の一覧</h2>
+      <h2>履歴一覧</h2>
       ${renderList(statusItems)}
     </div>
   `;
 }
 
 function renderList(items){
+  // OUT/PENDINGだけ表示（写真はいらない：一覧は文字情報だけ）
   const active = items.filter(x=>x.status==="OUT"||x.status==="PENDING");
   if(active.length===0){
-    return `<div class="item"><b>持ち出し無し</b><div class="meta">持ち出し中／返却確認待ちはありません</div></div>`;
+    return `<div class="item"><b>持ち出しなし</b><div class="meta">持ち出し中／返却確認待ちはありません</div></div>`;
   }
   return `<div class="list">` + active.map(x=>{
     const label = (x.status==="OUT") ? "持ち出し中" : "返却確認待ち";
@@ -212,7 +177,6 @@ function renderList(items){
       <div class="item ${x.status==="OUT"?'stateOut':'statePending'}">
         <b>${x.toolName}（${x.tool}）</b>
         <div class="meta">${label} / ${x.by||""} / ${t}</div>
-        ${x.photoUrl ? `<button class="small" onclick="openPhoto('${x.photoUrl.replace(/'/g,"%27")}')">写真</button>` : ``}
       </div>
     `;
   }).join("") + `</div>`;
@@ -222,8 +186,9 @@ window.openPhoto=(u)=>{ window.open(u, "_blank"); };
 
 window.take=async()=>{
   if(!tool){ toast("エラー","toolが指定されていません"); return; }
+  if(!getUser()){ toast("エラー","端末名が未設定"); return; }
   try{
-    await postAction_("持ち出し");
+    await post("持ち出し");
     vibrate(80);
     toast("持ち出しを記録","");
     await refresh();
@@ -234,6 +199,7 @@ window.take=async()=>{
 
 window.startReturn=async()=>{
   if(!tool){ toast("エラー","toolが指定されていません"); return; }
+  if(!getUser()){ toast("エラー","端末名が未設定"); return; }
   try{
     const cam=document.getElementById("cam");
     cam.classList.remove("hidden");
@@ -255,25 +221,19 @@ async function captureJpegDataUrl_(){
   const v=document.getElementById("v");
   if(!v) throw new Error("video not found");
   await new Promise(r=>setTimeout(r,150));
-
-  // 超低画質：縮小＋低品質
-  const srcW=v.videoWidth||1280, srcH=v.videoHeight||720;
-  const outW=640;
-  const outH=Math.round(outW * srcH / srcW);
-
   const c=document.createElement("canvas");
-  c.width=outW; c.height=outH;
+  const w=v.videoWidth||1280, h=v.videoHeight||720;
+  c.width=w; c.height=h;
   const ctx=c.getContext("2d");
-  ctx.drawImage(v,0,0,outW,outH);
-
-  return c.toDataURL("image/jpeg",0.35);
+  ctx.drawImage(v,0,0,w,h);
+  return c.toDataURL("image/jpeg",0.60);
 }
 
 window.shotAndSend=async()=>{
   try{
     const dataUrl = await captureJpegDataUrl_();
     cancelCam();
-    await postAction_("返却", dataUrl);
+    await post("返却", dataUrl);
     vibrate([60,60,60]);
     toast("返却を記録","確認待ち");
     await refresh();
@@ -284,8 +244,9 @@ window.shotAndSend=async()=>{
 
 window.confirmOk=async()=>{
   if(!tool){ toast("エラー","toolが指定されていません"); return; }
+  if(!getUser()){ toast("エラー","端末名が未設定"); return; }
   try{
-    await postAction_("確認");
+    await post("確認");
     vibrate(80);
     toast("確認を記録","");
     await refresh();
@@ -306,7 +267,7 @@ async function refresh(){
 
 function render(){
   header();
-  if(!getUser()){ showUserSelect(); return; }
+  if(!getUser()){ showNameInput(); return; }
   refresh();
   setInterval(refresh, 15000);
 }
