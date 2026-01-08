@@ -1,51 +1,45 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tool Check</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>tool-check</title>
 
 <style>
 body{
   margin:0;
-  background:#0e0e0e;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:#000;
   color:#fff;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto;
 }
 #hdr{
-  padding:12px 14px;
-  font-size:14px;
-  border-bottom:1px solid #222;
-}
-.card{
-  margin:14px;
   padding:14px;
-  border-radius:14px;
-  background:#181818;
+  border-bottom:1px solid #333;
+  font-size:14px;
 }
-h2{margin:0 0 8px 0;font-size:18px}
-button{
+.sec{
+  padding:14px;
+}
+.btn{
   width:100%;
   padding:14px;
-  margin-top:10px;
-  border-radius:12px;
-  border:none;
+  margin:8px 0;
   font-size:16px;
-  background:#2a2a2a;
+  background:#111;
   color:#fff;
-}
-button.primary{background:#3b82f6}
-button.ok{background:#16a34a}
-.list{
-  margin-top:10px;
-}
-.item{
-  padding:12px;
+  border:1px solid #333;
   border-radius:10px;
-  background:#202020;
-  margin-bottom:8px;
 }
-.small{font-size:13px;color:#aaa}
+.list{
+  border:1px solid #333;
+  border-radius:10px;
+  padding:12px;
+  margin:10px 0;
+}
+.small{
+  font-size:13px;
+  color:#aaa;
+}
 </style>
 </head>
 
@@ -55,130 +49,124 @@ button.ok{background:#16a34a}
 
 <script>
 /* ===== 設定 ===== */
-const GAS_URL="https://script.google.com/macros/s/AKfycbzgupJn0DPxP6AY-Ocr-Nw3Pt9cSbpRIr3ZMZxYH3R1z9-ydLUhepZwU51WRQB5bLG_Lw/exec";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbzgupJn0DPxP6AY-Ocr-Nw3Pt9cSbpRIr3ZMZxYH3R1z9-ydLUhepZwU51WRQB5bLG_Lw/exec";
+
+const TOOL_NAME = {
+  T001:"手歯止め",
+  T002:"デジタルゲージ",
+  T003:"検測用具",
+  T004:"誘導棒"
+};
 
 /* ===== URL ===== */
-const p=new URLSearchParams(location.search);
-const site=(p.get("site")||"").trim()||"A";
-const mode=(p.get("mode")||"").trim(); // confirm / normal
-const user=localStorage.getItem("toolUser")||"";
-
-/* ===== DOM ===== */
-const app=document.getElementById("app");
-const hdr=document.getElementById("hdr");
+const p = new URLSearchParams(location.search);
+const site = p.get("site") || "千葉機械ライン";
+const tool = p.get("tool");            // ← 無い場合は「確認者画面」
+let user  = localStorage.getItem("toolcheck_user") || "";
 
 /* ===== 共通 ===== */
-hdr.textContent=`現場：${site}　端末：${user||"未入力"}`;
+const hdr = document.getElementById("hdr");
+const app = document.getElementById("app");
 
-/* =========================
-   確認者画面
-========================= */
-if(mode==="confirm"){
-  loadConfirm();
+hdr.textContent = `現場：${site}　端末：${user || "未入力"}`;
+
+/* ===== API ===== */
+async function getStatus(){
+  const r = await fetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}`);
+  return r.json();
 }
-
-/* =========================
-   確認者ロジック
-========================= */
-async function loadConfirm(){
-  app.innerHTML="";
-
-  const res=await fetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}`);
-  const json=await res.json();
-
-  if(json.result!=="ok"){
-    app.innerHTML="<div class='card'>取得失敗</div>";
-    return;
-  }
-
-  // 返却確認待ちのみ抽出
-  const pending=json.items.filter(i=>i.status==="PENDING");
-
-  /* ===== 状態カード ===== */
-  const stateCard=document.createElement("div");
-  stateCard.className="card";
-
-  const h=document.createElement("h2");
-  h.textContent="状態";
-  stateCard.appendChild(h);
-
-  if(pending.length===0){
-    stateCard.appendChild(text("持ち出しなし"));
-  }else{
-    stateCard.appendChild(text("持ち出し中"));
-
-    const btnPhoto=btn("写真を見る",()=>{
-      window.open(pending[0].photoUrl,"_blank");
-    });
-
-    const btnOk=btn("確認（承認）",()=>{
-      approveAll(pending);
-    });
-    btnOk.classList.add("ok");
-
-    stateCard.appendChild(btnPhoto);
-    stateCard.appendChild(btnOk);
-  }
-
-  app.appendChild(stateCard);
-
-  /* ===== 履歴一覧（そのまま） ===== */
-  const listCard=document.createElement("div");
-  listCard.className="card";
-  listCard.innerHTML="<h2>履歴一覧</h2>";
-
-  const list=document.createElement("div");
-  list.className="list";
-
-  json.items.forEach(i=>{
-    const d=document.createElement("div");
-    d.className="item";
-    d.innerHTML=`
-      <div>${i.toolName} (${i.tool})</div>
-      <div class="small">${i.status} / ${i.by} / ${fmt(i.at)}</div>
-    `;
-    list.appendChild(d);
+async function post(action, item){
+  await fetch(GAS_URL,{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({
+      site,
+      tool:item.tool,
+      toolName:item.toolName,
+      action,
+      user,
+      datetime:new Date().toISOString()
+    })
   });
-
-  listCard.appendChild(list);
-  app.appendChild(listCard);
 }
 
-/* =========================
-   承認処理
-========================= */
-async function approveAll(items){
-  for(const i of items){
-    await fetch(GAS_URL,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        site:i.site,
-        tool:i.tool,
-        toolName:i.toolName,
-        action:"確認",
-        user:user,
-        datetime:new Date().toISOString()
-      })
-    });
+/* ======================================================
+   ① タグ読んだ画面（既存動作・触ってない）
+====================================================== */
+if(tool){
+  renderBorrow();
+}else{
+/* ======================================================
+   ② 確認者画面（ここだけ修正）
+====================================================== */
+  renderApprover();
+}
+
+/* ===== 借りる画面 ===== */
+async function renderBorrow(){
+  const data = await getStatus();
+  const item = data.items.find(i=>i.tool===tool) || {
+    tool, toolName:TOOL_NAME[tool]||"不明", status:"IN"
+  };
+
+  app.innerHTML = `
+    <div class="sec">
+      <div class="list">
+        状態：${ item.status==="OUT" ? "持ち出し中" : "持ち出しなし" }
+      </div>
+      <button class="btn" onclick="doBorrow()">持ち出し</button>
+    </div>
+  `;
+}
+
+async function doBorrow(){
+  if(!user){
+    user = prompt("名前を入力");
+    if(!user) return;
+    localStorage.setItem("toolcheck_user",user);
+    hdr.textContent = `現場：${site}　端末：${user}`;
   }
+  await post("持ち出し",{ tool, toolName:TOOL_NAME[tool] });
   location.reload();
 }
 
-/* ===== util ===== */
-function btn(t,fn){
-  const b=document.createElement("button");
-  b.textContent=t;
-  b.onclick=fn;
-  return b;
+/* ===== 確認者画面 ===== */
+async function renderApprover(){
+  const data = await getStatus();
+  const pending = data.items.filter(i=>i.status==="PENDING");
+
+  let html = `
+    <div class="sec">
+      <div class="list">
+        状態：${ pending.length ? "返却確認待ち" : "持ち出しなし" }
+      </div>
+  `;
+
+  if(pending.length){
+    pending.forEach(i=>{
+      html += `
+        <div class="list">
+          <b>${i.toolName} (${i.tool})</b><br>
+          <span class="small">${i.by} / ${new Date(i.at).toLocaleString()}</span>
+          <button class="btn" onclick="approve('${i.tool}','${i.toolName}')">確認</button>
+        </div>
+      `;
+    });
+  }
+
+  html += "</div>";
+  app.innerHTML = html;
 }
-function text(t){
-  const d=document.createElement("div");
-  d.textContent=t;
-  return d;
-}
-function fmt(s){
-  return new Date(s).toLocaleString();
+
+async function approve(tid,tname){
+  if(!user){
+    user = prompt("名前を入力");
+    if(!user) return;
+    localStorage.setItem("toolcheck_user",user);
+    hdr.textContent = `現場：${site}　端末：${user}`;
+  }
+  await post("確認",{ tool:tid, toolName:tname });
+  location.reload();
 }
 </script>
 </body>
