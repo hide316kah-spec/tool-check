@@ -9,13 +9,13 @@ body{margin:0;background:#111;color:#fff;font-family:-apple-system}
 header{padding:10px 12px;border-bottom:1px solid #333;color:#bbb;font-size:14px}
 main{padding:14px;max-width:560px;margin:auto}
 .card{border:1px solid #333;border-radius:12px;padding:14px;margin-bottom:12px}
-.item{
-{border:1px solid #555;border-radius:12px;padding:12px;margin-top:10px}
+.item{border:1px solid #555;border-radius:12px;padding:12px;margin-top:10px}
 .item b{display:block;font-size:16px}
 .meta{opacity:.7;font-size:13px;margin-top:6px}
 button{width:100%;padding:12px;margin-top:10px;font-size:16px;border-radius:10px;background:#1a1a1a;color:#fff;border:1px solid #333}
 .small{font-size:14px;padding:10px}
 .toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000;border:1px solid #333;padding:18px 22px;border-radius:12px;z-index:9999}
+.hidden{display:none}
 </style>
 </head>
 <body>
@@ -25,6 +25,12 @@ button{width:100%;padding:12px;margin-top:10px;font-size:16px;border-radius:10px
 <script>
 /* ===== 設定 ===== */
 const GAS_URL="https://script.google.com/macros/s/AKfycbwX0NRwuSbBWog7-6rNJHAHrI6xb5zXNn1TbZE02mB5mKDSNfoma0QwzjpFHkIzxNvkhg/exec";
+
+/* ===== 工具名（toolNameが空の時の保険）===== */
+const TOOL_NAME={
+  T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
+  T004:"誘導棒",D001:"その他（扉1）",D002:"その他（扉2）",D003:"その他（扉3）"
+};
 
 /* ===== URL ===== */
 const p=new URLSearchParams(location.search);
@@ -45,14 +51,53 @@ function toast(t,ms=1600){
 function getUser(){return localStorage.getItem("confirmUser")||"";}
 function setUser(n){localStorage.setItem("confirmUser",n);}
 
-/* ===== API ===== */
+/* ===== status: JSONP（index.htmlと同じ方式に寄せる）===== */
+function jsonp_(url, timeoutMs=8000){
+  return new Promise((resolve,reject)=>{
+    const cb="cb_"+Math.random().toString(36).slice(2);
+    const s=document.createElement("script");
+    const t=setTimeout(()=>{ cleanup(); reject(new Error("timeout")); }, timeoutMs);
+    function cleanup(){
+      clearTimeout(t);
+      try{ delete window[cb]; }catch(_){ window[cb]=undefined; }
+      if (s.parentNode) s.parentNode.removeChild(s);
+    }
+    window[cb]=(data)=>{ cleanup(); resolve(data); };
+    s.onerror=()=>{ cleanup(); reject(new Error("load error")); };
+    s.src = url + (url.includes("?") ? "&" : "?") + "callback=" + encodeURIComponent(cb) + "&t=" + Date.now();
+    document.body.appendChild(s);
+  });
+}
+
 async function getStatus(){
-  const r=await fetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`);
-  const js=await r.json();
-  if(js.result!=="ok") throw new Error();
+  const url = `${GAS_URL}?mode=status&site=${encodeURIComponent(site)}`;
+  const js = await jsonp_(url);
+  if(js.result!=="ok") throw new Error("status error");
   return Array.isArray(js.items)?js.items:[];
 }
 
+/* ===== 記録: hidden form POST（index.htmlと同じ方式）===== */
+let postFrameInited=false;
+function ensurePostFrame_(){
+  if(postFrameInited) return;
+  const ifr=document.createElement("iframe");
+  ifr.name="postFrame";
+  ifr.style.display="none";
+  document.body.appendChild(ifr);
+  postFrameInited=true;
+}
+function formPost_(payload){
+  ensurePostFrame_();
+  const f=document.createElement("form");
+  f.method="POST"; f.action=GAS_URL; f.target="postFrame"; f.style.display="none";
+  for(const k of Object.keys(payload)){
+    const i=document.createElement("input");
+    i.type="hidden"; i.name=k; i.value=String(payload[k]);
+    f.appendChild(i);
+  }
+  document.body.appendChild(f);
+  f.submit(); f.remove();
+}
 async function postConfirm(tool, toolName){
   const payload={
     datetime:new Date().toISOString(),
@@ -62,14 +107,14 @@ async function postConfirm(tool, toolName){
     action:"確認",
     user:getUser()
   };
-  const r=await fetch(GAS_URL,{method:"POST",body:JSON.stringify(payload)});
-  const js=await r.json();
-  if(js.result!=="ok") throw new Error();
+  formPost_(payload);
+  // GASの書き込み待ち（index.htmlと同じ）
+  await new Promise(r=>setTimeout(r,500));
 }
 
 /* ===== UI ===== */
-function renderHeader(txt){
-  hdr.textContent=`返却確認　現場：${site}　確認者：${getUser()}　状態：${txt}`;
+function renderHeader(stateText){
+  hdr.textContent=`返却確認　現場：${site}　確認者：${getUser()}　状態：${stateText}`;
 }
 
 function askName(){
@@ -87,35 +132,49 @@ function askName(){
 }
 
 function renderList(items){
-  const pending=items.filter(x=>x && x.status==="PENDING");
+  const list = Array.isArray(items)?items:[];
+  const pending = list.filter(x=>x && x.status==="PENDING");
+  const out = list.filter(x=>x && x.status==="OUT");
 
+  // 上部の状態（PENDING優先）
+  const stateText = pending.length>0 ? "返却確認あり" : (out.length>0 ? "持ち出し中" : "持ち出しなし");
+  renderHeader(stateText);
+
+  // PENDINGが無いなら、ここで終了（履歴は出さない仕様）
   if(pending.length===0){
-    renderHeader("持ち出しなし");
     app.innerHTML=`<div class="card">返却確認待ちはありません</div>`;
     return;
   }
 
-  renderHeader("返却確認待ちあり");
+  // ここから「返却確認待ち」のみ表示（OUT/INは出さない）
   app.innerHTML="";
   pending.forEach(x=>{
-    const tool=x.tool||"";
-    const toolName=x.toolName||"不明";
-    const by=x.by||"";
-    const at=x.at?new Date(x.at).toLocaleString():"";
+    const tool = x.tool || "";
+    const toolName = (x.toolName && String(x.toolName).trim()) ? String(x.toolName).trim() : (TOOL_NAME[tool] || "不明");
+    const by = x.by || "";
+    const at = x.at ? new Date(x.at).toLocaleString() : "";
 
     const d=document.createElement("div");
     d.className="item";
     d.innerHTML=`
       <b>${toolName}（${tool}）</b>
-      <div class="meta">返却者：${by}</div>
-      <div class="meta">時刻：${at}</div>
+      <div class="meta">返却確認待ち</div>
+      <div class="meta">操作者：${by}</div>
+      ${at ? `<div class="meta">時刻：${at}</div>` : ``}
     `;
 
+    // ボタンは「写真を見る」「確認（承認）」だけ
     if(x.photoUrl){
       const p=document.createElement("button");
       p.className="small";
       p.textContent="写真を見る";
       p.onclick=()=>window.open(x.photoUrl,"_blank");
+      d.appendChild(p);
+    }else{
+      // 写真が無いのは本来ありえないが、UI上の迷子防止
+      const p=document.createElement("div");
+      p.className="meta";
+      p.textContent="写真URLなし（GASデータ要確認）";
       d.appendChild(p);
     }
 
