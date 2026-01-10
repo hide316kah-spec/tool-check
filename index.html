@@ -16,9 +16,9 @@ button{width:100%;padding:14px;margin-top:10px;font-size:18px;border-radius:12px
 .list .item{border:1px solid #333;border-radius:12px;padding:12px;margin-top:10px}
 .item b{display:block;font-size:16px}
 .item .meta{opacity:.7;font-size:13px;margin-top:6px}
+video{width:100%;border-radius:12px;border:1px solid #333;background:#000}
 .hidden{display:none}
 .statePending{border-color:#aa3}
-.stateOut{border-color:#a33}
 </style>
 </head>
 <body>
@@ -35,21 +35,20 @@ const TOOL_NAME={
   T004:"誘導棒",D001:"その他（扉1）",D002:"その他（扉2）",D003:"その他（扉3）"
 };
 
+/* ===== 名前（通常画面用）===== */
+let CURRENT_USER = localStorage.getItem("toolcheck_user");
+if(!CURRENT_USER){
+  const v = prompt("名前を入力してください");
+  CURRENT_USER = (v && v.trim()) ? v.trim() : "未入力";
+  localStorage.setItem("toolcheck_user", CURRENT_USER);
+}
+
 /* ===== URL ===== */
 const p=new URLSearchParams(location.search);
 const site=(p.get("site")||"").trim() || "A";
 const tool=(p.get("tool")||"").trim();
 const toolName=TOOL_NAME[tool]||"不明";
 const IS_CHECKER = (p.get("role")||"") === "checker";
-
-/* ===== 名前 ===== */
-const LS_KEY = IS_CHECKER ? "toolcheck_checker" : "toolcheck_user";
-let CURRENT_USER = localStorage.getItem(LS_KEY);
-if(!CURRENT_USER){
-  const v = prompt("名前を入力してください");
-  CURRENT_USER = (v && v.trim()) ? v.trim() : "未入力";
-  localStorage.setItem(LS_KEY, CURRENT_USER);
-}
 
 /* ===== DOM ===== */
 const app=document.getElementById("app");
@@ -65,45 +64,19 @@ function toast(a,b="",ms=2000){
 }
 
 /* ===== JSONP ===== */
-function jsonp_(url, timeoutMs=8000){
+function jsonp_(url){
   return new Promise((resolve,reject)=>{
     const cb="cb_"+Math.random().toString(36).slice(2);
-    let done=false;
-    const timer=setTimeout(()=>{
-      if(done) return;
-      done=true;
-      try{ delete window[cb]; }catch(_){}
-      s.remove();
-      reject(new Error("timeout"));
-    }, timeoutMs);
-
-    window[cb]=(d)=>{
-      if(done) return;
-      done=true;
-      clearTimeout(timer);
-      try{ delete window[cb]; }catch(_){}
-      s.remove();
-      resolve(d);
-    };
-
+    window[cb]=(d)=>{ delete window[cb]; s.remove(); resolve(d); };
     const s=document.createElement("script");
-    s.onerror=()=>{
-      if(done) return;
-      done=true;
-      clearTimeout(timer);
-      try{ delete window[cb]; }catch(_){}
-      s.remove();
-      reject(new Error("onerror"));
-    };
-
+    s.onerror=()=>{ delete window[cb]; reject(); };
     s.src=url+(url.includes("?")?"&":"?")+"callback="+cb+"&t="+Date.now();
     document.body.appendChild(s);
   });
 }
-
 async function getStatus(){
   const js = await jsonp_(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}`);
-  if(!js || js.result!=="ok") throw new Error("bad result");
+  if(js.result!=="ok") throw new Error();
   return js.items||[];
 }
 
@@ -118,78 +91,41 @@ function postAction(payload){
     f.appendChild(i);
   }
   document.body.appendChild(f);
-  f.submit();
-  f.remove();
+  f.submit(); f.remove();
 }
 
 /* ===== header ===== */
 hdr.textContent = IS_CHECKER
-  ? `確認者画面｜現場：${site}　確認者：${CURRENT_USER}`
+  ? `確認者画面｜現場：${site}`
   : `現場：${site}　道具：${toolName}　端末：${CURRENT_USER}`;
 
 /* ===== UI ===== */
 function renderNormal(items){
-  // ※タグ読んだ側は「触らない」方針なので、ここは最低限表示だけにしてある
-  app.innerHTML = `<div class="card"><h2>通常画面</h2><div style="opacity:.7">（この画面は既存のタグ読取版を使用）</div></div>`;
-}
-
-function statusLabel(items){
-  const out = items.some(x=>x.status==="OUT");
-  const pend = items.some(x=>x.status==="PENDING");
-  if(out) return "持ち出し中";
-  if(pend) return "返却確認待ちあり";
-  return "持ち出しなし";
+  app.innerHTML=`<div class="card"><h2>通常画面</h2></div>`;
 }
 
 function renderChecker(items){
   const pend = items.filter(x=>x.status==="PENDING");
-  const out  = items.filter(x=>x.status==="OUT");
-
-  // 上段：状態
-  const label = statusLabel(items);
-
-  let topHtml = `
+  if(pend.length===0){
+    app.innerHTML=`<div class="card"><b>確認待ちなし</b></div>`;
+    return;
+  }
+  app.innerHTML=`
     <div class="card">
-      <h2>状態</h2>
-      <div style="font-size:22px;font-weight:700;margin-top:6px">${label}</div>
+      <h2>返却確認</h2>
+      ${pend.map(x=>`
+        <div class="item statePending">
+          <b>${x.toolName}</b>
+          <div class="meta">${x.by} / ${new Date(x.at).toLocaleString()}</div>
+          <button class="small" onclick="openPhoto('${x.photoUrl}')">写真を見る</button>
+          <button onclick="confirmChecker('${x.tool}','${x.toolName}')">確認</button>
+        </div>
+      `).join("")}
     </div>
   `;
-
-  // 返却確認待ち（PENDING）があるときだけ「写真を見る」「確認」を出す
-  let pendHtml = "";
-  if(pend.length>0){
-    pendHtml = `
-      <div class="card">
-        <h2>返却確認</h2>
-        ${pend.map(x=>`
-          <div class="item statePending">
-            <b>${x.toolName}（${x.tool}）</b>
-            <div class="meta">${x.by} / ${new Date(x.at).toLocaleString()}</div>
-            <button class="small" onclick="openPhoto('${escapeAttr(x.photoUrl)}')">写真を見る</button>
-            <button onclick="confirmChecker('${escapeAttr(x.tool)}','${escapeAttr(x.toolName)}')">確認（承認）</button>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  // ※真ん中の「不明」ブロックは確認者では出さない（要件）
-  app.innerHTML = topHtml + pendHtml;
-
-  // OUTがあっても確認者は承認対象じゃない（返却(PENDING)だけ）
-  // ここは表示だけ上段で伝える
 }
 
-function escapeAttr(s){
-  return String(s||"")
-    .replaceAll("&","&amp;")
-    .replaceAll("'","&#39;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;");
-}
-
-/* ===== 確認者用：確認（承認）===== */
+/* ===== 確認者用 確認 ===== */
 function confirmChecker(tid, tname){
   postAction({
     datetime:new Date().toISOString(),
@@ -199,23 +135,17 @@ function confirmChecker(tid, tname){
     action:"確認",
     user: CURRENT_USER
   });
-  toast("確認（承認）を記録");
-  // すぐ取り直し（GAS反映に少しラグるので短い待ち）
-  setTimeout(refresh, 600);
+  toast("確認完了");
+  refresh();
 }
 
-function openPhoto(u){
-  if(!u){ toast("写真URLなし"); return; }
-  window.open(u, "_blank");
-}
+function openPhoto(u){ window.open(u); }
 
 async function refresh(){
   try{
-    app.innerHTML = `<div class="card"><b>取得中…</b></div>`;
     const items = await getStatus();
     IS_CHECKER ? renderChecker(items) : renderNormal(items);
   }catch(e){
-    app.innerHTML = `<div class="card"><b>取得失敗</b></div>`;
     toast("取得失敗");
   }
 }
