@@ -14,8 +14,7 @@ main{padding:14px;max-width:560px;margin:auto}
 .meta{opacity:.7;font-size:13px;margin-top:6px}
 button{width:100%;padding:12px;margin-top:10px;font-size:16px;border-radius:10px;background:#1a1a1a;color:#fff;border:1px solid #333}
 .small{font-size:14px;padding:10px}
-.toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000;border:1px solid #333;padding:18px 22px;border-radius:12px;z-index:9999}
-.hidden{display:none}
+.toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:#000;border:1px solid #333;padding:18px 22px;border-radius:12px}
 </style>
 </head>
 <body>
@@ -26,19 +25,13 @@ button{width:100%;padding:12px;margin-top:10px;font-size:16px;border-radius:10px
 /* ===== 設定 ===== */
 const GAS_URL="https://script.google.com/macros/s/AKfycbwX0NRwuSbBWog7-6rNJHAHrI6xb5zXNn1TbZE02mB5mKDSNfoma0QwzjpFHkIzxNvkhg/exec";
 
-/* ===== 工具名（toolNameが空の時の保険）===== */
-const TOOL_NAME={
-  T001:"手歯止め",T002:"デジタルゲージ",T003:"検測用具",
-  T004:"誘導棒",D001:"その他（扉1）",D002:"その他（扉2）",D003:"その他（扉3）"
-};
-
 /* ===== URL ===== */
 const p=new URLSearchParams(location.search);
 const site=(p.get("site")||"").trim();
 
 /* ===== DOM ===== */
-const app=document.getElementById("app");
 const hdr=document.getElementById("hdr");
+const app=document.getElementById("app");
 
 /* ===== util ===== */
 function toast(t,ms=1600){
@@ -49,145 +42,103 @@ function toast(t,ms=1600){
   setTimeout(()=>d.remove(),ms);
 }
 function getUser(){return localStorage.getItem("confirmUser")||"";}
-function setUser(n){localStorage.setItem("confirmUser",n);}
+function setUser(v){localStorage.setItem("confirmUser",v);}
 
-/* ===== status: JSONP（index.htmlと同じ方式に寄せる）===== */
-function jsonp_(url, timeoutMs=8000){
+/* ===== JSONP status（index.htmlと同方式）===== */
+function jsonp_(url){
   return new Promise((resolve,reject)=>{
     const cb="cb_"+Math.random().toString(36).slice(2);
+    window[cb]=(data)=>{ delete window[cb]; s.remove(); resolve(data); };
     const s=document.createElement("script");
-    const t=setTimeout(()=>{ cleanup(); reject(new Error("timeout")); }, timeoutMs);
-    function cleanup(){
-      clearTimeout(t);
-      try{ delete window[cb]; }catch(_){ window[cb]=undefined; }
-      if (s.parentNode) s.parentNode.removeChild(s);
-    }
-    window[cb]=(data)=>{ cleanup(); resolve(data); };
-    s.onerror=()=>{ cleanup(); reject(new Error("load error")); };
-    s.src = url + (url.includes("?") ? "&" : "?") + "callback=" + encodeURIComponent(cb) + "&t=" + Date.now();
+    s.onerror=()=>{ delete window[cb]; reject(); };
+    s.src=url+(url.includes("?")?"&":"?")+"callback="+cb+"&t="+Date.now();
     document.body.appendChild(s);
   });
 }
-
 async function getStatus(){
-  const url = `${GAS_URL}?mode=status&site=${encodeURIComponent(site)}`;
-  const js = await jsonp_(url);
-  if(js.result!=="ok") throw new Error("status error");
-  return Array.isArray(js.items)?js.items:[];
+  const js=await jsonp_(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}`);
+  if(js.result!=="ok") throw new Error();
+  return js.items||[];
 }
 
-/* ===== 記録: hidden form POST（index.htmlと同じ方式）===== */
-let postFrameInited=false;
-function ensurePostFrame_(){
-  if(postFrameInited) return;
-  const ifr=document.createElement("iframe");
-  ifr.name="postFrame";
-  ifr.style.display="none";
-  document.body.appendChild(ifr);
-  postFrameInited=true;
+/* ===== hidden form POST（確認のみ）===== */
+let postFrame=false;
+function ensureFrame(){
+  if(postFrame) return;
+  const f=document.createElement("iframe");
+  f.name="postFrame";
+  f.style.display="none";
+  document.body.appendChild(f);
+  postFrame=true;
 }
-function formPost_(payload){
-  ensurePostFrame_();
+function postConfirm(tool, toolName){
+  if(!tool) return; // ガード
+  ensureFrame();
   const f=document.createElement("form");
   f.method="POST"; f.action=GAS_URL; f.target="postFrame"; f.style.display="none";
-  for(const k of Object.keys(payload)){
+  const payload={
+    datetime:new Date().toISOString(),
+    site, tool, toolName,
+    action:"確認",
+    user:getUser()
+  };
+  for(const k in payload){
     const i=document.createElement("input");
-    i.type="hidden"; i.name=k; i.value=String(payload[k]);
+    i.type="hidden"; i.name=k; i.value=payload[k];
     f.appendChild(i);
   }
   document.body.appendChild(f);
   f.submit(); f.remove();
 }
-async function postConfirm(tool, toolName){
-  const payload={
-    datetime:new Date().toISOString(),
-    site,
-    tool,
-    toolName,
-    action:"確認",
-    user:getUser()
-  };
-  formPost_(payload);
-  // GASの書き込み待ち（index.htmlと同じ）
-  await new Promise(r=>setTimeout(r,500));
-}
 
 /* ===== UI ===== */
-function renderHeader(stateText){
-  hdr.textContent=`返却確認　現場：${site}　確認者：${getUser()}　状態：${stateText}`;
-}
-
 function askName(){
   app.innerHTML=`
     <div class="card">
-      <h2>確認者名を入力</h2>
-      <input id="name" style="width:100%;padding:12px;font-size:16px;border-radius:10px;border:1px solid #333;background:#000;color:#fff">
-      <button id="save">OK</button>
+      <h2>確認者名</h2>
+      <input id="n" style="width:100%;padding:12px;font-size:16px;background:#000;color:#fff;border:1px solid #333;border-radius:10px">
+      <button id="ok">OK</button>
     </div>`;
-  document.getElementById("save").onclick=()=>{
-    const v=document.getElementById("name").value.trim();
+  document.getElementById("ok").onclick=()=>{
+    const v=document.getElementById("n").value.trim();
     if(!v){toast("名前を入力");return;}
     setUser(v); render();
   };
 }
 
 function renderList(items){
-  const list = Array.isArray(items)?items:[];
-  const pending = list.filter(x=>x && x.status==="PENDING");
-  const out = list.filter(x=>x && x.status==="OUT");
+  const pending=items.filter(x=>x && x.status==="PENDING" && x.tool);
+  hdr.textContent=`返却確認　現場：${site}　確認者：${getUser()}　状態：${pending.length?"返却確認あり":"持ち出しなし"}`;
 
-  // 上部の状態（PENDING優先）
-  const stateText = pending.length>0 ? "返却確認あり" : (out.length>0 ? "持ち出し中" : "持ち出しなし");
-  renderHeader(stateText);
-
-  // PENDINGが無いなら、ここで終了（履歴は出さない仕様）
   if(pending.length===0){
     app.innerHTML=`<div class="card">返却確認待ちはありません</div>`;
     return;
   }
 
-  // ここから「返却確認待ち」のみ表示（OUT/INは出さない）
   app.innerHTML="";
   pending.forEach(x=>{
-    const tool = x.tool || "";
-    const toolName = (x.toolName && String(x.toolName).trim()) ? String(x.toolName).trim() : (TOOL_NAME[tool] || "不明");
-    const by = x.by || "";
-    const at = x.at ? new Date(x.at).toLocaleString() : "";
-
     const d=document.createElement("div");
     d.className="item";
     d.innerHTML=`
-      <b>${toolName}（${tool}）</b>
-      <div class="meta">返却確認待ち</div>
-      <div class="meta">操作者：${by}</div>
-      ${at ? `<div class="meta">時刻：${at}</div>` : ``}
+      <b>${x.toolName}（${x.tool}）</b>
+      <div class="meta">操作者：${x.by||""}</div>
+      <div class="meta">時刻：${x.at?new Date(x.at).toLocaleString():""}</div>
     `;
 
-    // ボタンは「写真を見る」「確認（承認）」だけ
     if(x.photoUrl){
       const p=document.createElement("button");
       p.className="small";
       p.textContent="写真を見る";
       p.onclick=()=>window.open(x.photoUrl,"_blank");
       d.appendChild(p);
-    }else{
-      // 写真が無いのは本来ありえないが、UI上の迷子防止
-      const p=document.createElement("div");
-      p.className="meta";
-      p.textContent="写真URLなし（GASデータ要確認）";
-      d.appendChild(p);
     }
 
     const c=document.createElement("button");
     c.textContent="確認（承認）";
-    c.onclick=async()=>{
-      try{
-        await postConfirm(tool, toolName);
-        toast("確認しました");
-        refresh();
-      }catch(e){
-        toast("通信エラー");
-      }
+    c.onclick=()=>{
+      postConfirm(x.tool, x.toolName);
+      toast("確認しました");
+      setTimeout(refresh,600);
     };
     d.appendChild(c);
     app.appendChild(d);
@@ -198,7 +149,7 @@ async function refresh(){
   try{
     const items=await getStatus();
     renderList(items);
-  }catch(e){
+  }catch{
     toast("取得失敗");
   }
 }
@@ -209,7 +160,6 @@ function render(){
   refresh();
   setInterval(refresh,10000);
 }
-
 render();
 </script>
 </body>
