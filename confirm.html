@@ -9,7 +9,8 @@ body{margin:0;background:#111;color:#fff;font-family:-apple-system}
 header{padding:10px 12px;border-bottom:1px solid #333;color:#bbb;font-size:14px}
 main{padding:14px;max-width:560px;margin:auto}
 .card{border:1px solid #333;border-radius:12px;padding:14px;margin-bottom:12px}
-.item{border:1px solid #555;border-radius:12px;padding:12px;margin-top:10px}
+.item{
+{border:1px solid #555;border-radius:12px;padding:12px;margin-top:10px}
 .item b{display:block;font-size:16px}
 .meta{opacity:.7;font-size:13px;margin-top:6px}
 button{width:100%;padding:12px;margin-top:10px;font-size:16px;border-radius:10px;background:#1a1a1a;color:#fff;border:1px solid #333}
@@ -29,10 +30,11 @@ const GAS_URL="https://script.google.com/macros/s/AKfycbwX0NRwuSbBWog7-6rNJHAHrI
 const p=new URLSearchParams(location.search);
 const site=(p.get("site")||"").trim();
 
-/* ===== 共通 ===== */
+/* ===== DOM ===== */
 const app=document.getElementById("app");
 const hdr=document.getElementById("hdr");
 
+/* ===== util ===== */
 function toast(t,ms=1600){
   const d=document.createElement("div");
   d.className="toast";
@@ -40,16 +42,15 @@ function toast(t,ms=1600){
   document.body.appendChild(d);
   setTimeout(()=>d.remove(),ms);
 }
-
 function getUser(){return localStorage.getItem("confirmUser")||"";}
 function setUser(n){localStorage.setItem("confirmUser",n);}
 
-/* ===== 通信 ===== */
+/* ===== API ===== */
 async function getStatus(){
-  const r = await fetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`);
-  const js = await r.json();
+  const r=await fetch(`${GAS_URL}?mode=status&site=${encodeURIComponent(site)}&t=${Date.now()}`);
+  const js=await r.json();
   if(js.result!=="ok") throw new Error();
-  return js.items||[];
+  return Array.isArray(js.items)?js.items:[];
 }
 
 async function postConfirm(tool, toolName){
@@ -61,71 +62,82 @@ async function postConfirm(tool, toolName){
     action:"確認",
     user:getUser()
   };
-  const r = await fetch(GAS_URL,{
-    method:"POST",
-    body:JSON.stringify(payload)
-  });
-  const js = await r.json();
+  const r=await fetch(GAS_URL,{method:"POST",body:JSON.stringify(payload)});
+  const js=await r.json();
   if(js.result!=="ok") throw new Error();
 }
 
 /* ===== UI ===== */
-function renderHeader(stateText){
-  hdr.textContent = `返却確認　現場：${site}　確認者：${getUser()}　状態：${stateText}`;
+function renderHeader(txt){
+  hdr.textContent=`返却確認　現場：${site}　確認者：${getUser()}　状態：${txt}`;
 }
 
 function askName(){
   app.innerHTML=`
     <div class="card">
       <h2>確認者名を入力</h2>
-      <input id="name" placeholder="名前" style="width:100%;padding:12px;font-size:16px;border-radius:10px;border:1px solid #333;background:#000;color:#fff">
-      <button onclick="saveName()">OK</button>
+      <input id="name" style="width:100%;padding:12px;font-size:16px;border-radius:10px;border:1px solid #333;background:#000;color:#fff">
+      <button id="save">OK</button>
     </div>`;
+  document.getElementById("save").onclick=()=>{
+    const v=document.getElementById("name").value.trim();
+    if(!v){toast("名前を入力");return;}
+    setUser(v); render();
+  };
 }
-window.saveName=()=>{
-  const v=document.getElementById("name").value.trim();
-  if(!v){ toast("名前を入力"); return; }
-  setUser(v);
-  render();
-};
 
 function renderList(items){
-  const pending = items.filter(x=>x.status==="PENDING");
+  const pending=items.filter(x=>x && x.status==="PENDING");
 
   if(pending.length===0){
     renderHeader("持ち出しなし");
-    app.innerHTML = `<div class="card">返却確認待ちはありません</div>`;
+    app.innerHTML=`<div class="card">返却確認待ちはありません</div>`;
     return;
   }
 
   renderHeader("返却確認待ちあり");
+  app.innerHTML="";
+  pending.forEach(x=>{
+    const tool=x.tool||"";
+    const toolName=x.toolName||"不明";
+    const by=x.by||"";
+    const at=x.at?new Date(x.at).toLocaleString():"";
 
-  app.innerHTML = pending.map(x=>`
-    <div class="item">
-      <b>${x.toolName}（${x.tool}）</b>
-      <div class="meta">返却者：${x.by||""}</div>
-      <div class="meta">時刻：${x.at ? new Date(x.at).toLocaleString() : ""}</div>
-      ${x.photoUrl ? `<button class="small" onclick="openPhoto('${x.photoUrl}')">写真を見る</button>` : ``}
-      <button onclick="confirmItem('${x.tool}','${x.toolName.replace(/'/g,"")}')">確認（承認）</button>
-    </div>
-  `).join("");
+    const d=document.createElement("div");
+    d.className="item";
+    d.innerHTML=`
+      <b>${toolName}（${tool}）</b>
+      <div class="meta">返却者：${by}</div>
+      <div class="meta">時刻：${at}</div>
+    `;
+
+    if(x.photoUrl){
+      const p=document.createElement("button");
+      p.className="small";
+      p.textContent="写真を見る";
+      p.onclick=()=>window.open(x.photoUrl,"_blank");
+      d.appendChild(p);
+    }
+
+    const c=document.createElement("button");
+    c.textContent="確認（承認）";
+    c.onclick=async()=>{
+      try{
+        await postConfirm(tool, toolName);
+        toast("確認しました");
+        refresh();
+      }catch(e){
+        toast("通信エラー");
+      }
+    };
+    d.appendChild(c);
+    app.appendChild(d);
+  });
 }
-
-window.openPhoto=(u)=>{ window.open(u,"_blank"); };
-
-window.confirmItem=async(tool, toolName)=>{
-  try{
-    await postConfirm(tool, toolName);
-    toast("確認しました");
-    refresh();
-  }catch(e){
-    toast("通信エラー");
-  }
-};
 
 async function refresh(){
   try{
-    const items = await getStatus();
+    const items=await getStatus();
     renderList(items);
   }catch(e){
     toast("取得失敗");
@@ -133,16 +145,10 @@ async function refresh(){
 }
 
 function render(){
-  if(!site){
-    app.innerHTML=`<div class="card">site が指定されていません</div>`;
-    return;
-  }
-  if(!getUser()){
-    askName();
-    return;
-  }
+  if(!site){app.innerHTML="<div class='card'>site未指定</div>";return;}
+  if(!getUser()){askName();return;}
   refresh();
-  setInterval(refresh, 10000);
+  setInterval(refresh,10000);
 }
 
 render();
